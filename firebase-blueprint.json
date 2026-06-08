@@ -1,0 +1,64 @@
+{
+  "entities": {
+    "User": {
+      "title": "User Profile Collection Schema",
+      "description": "Standard cryptographic and economic telemetry model for players.",
+      "type": "object",
+      "properties": {
+        "pokiBalance": {
+          "type": "number",
+          "description": "Dynamic POKI balances, up to 8 decimal precision."
+        },
+        "highestGameDistance": {
+          "type": "integer",
+          "description": "Record high score distance logged on Subway Surfers."
+        },
+        "lastSyncTimestamp": {
+          "type": "integer",
+          "description": "UTC timestamp showing the most recent database merge action."
+        },
+        "emailVerified": {
+          "type": "boolean",
+          "description": "Verification flag for consensus transfers permissions."
+        }
+      },
+      "required": ["pokiBalance", "highestGameDistance", "lastSyncTimestamp", "emailVerified"]
+    },
+    "LedgerEntry": {
+      "title": "Subcollection historic audit balances",
+      "description": "Transaction or performance proof entries on the block audit path.",
+      "type": "object",
+      "properties": {
+        "coinsCollected": {
+          "type": "number"
+        },
+        "gain": {
+          "type": "number"
+        },
+        "gameScore": {
+          "type": "integer"
+        },
+        "hashSignature": {
+          "type": "string"
+        },
+        "timestamp": {
+          "type": "integer"
+        },
+        "status": {
+          "type": "string"
+        }
+      },
+      "required": ["coinsCollected", "gain", "gameScore", "hashSignature", "timestamp", "status"]
+    }
+  },
+  "firestore": {
+    "/users/{userId}": {
+      "schema": "User",
+      "description": "Aggregated user balances, mining increments, and KYC flags."
+    },
+    "/users/{userId}/ledger/{ledgerId}": {
+      "schema": "LedgerEntry",
+      "description": "Historic ledger list verifying security proof inputs."
+    }
+  }
+}

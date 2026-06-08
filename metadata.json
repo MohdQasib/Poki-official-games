@@ -1,0 +1,6 @@
+{
+  "name": "PokiCoin Arcade",
+  "description": "A premium casual arcade and casino gaming portal featuring high-retention, fully interactive 10 arcade and 10 casino games in a slick, dark-themed hub.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}

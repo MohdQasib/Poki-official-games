@@ -1,0 +1,94 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+
+    // 1. GLOBAL SAFETY NET (Default Deny Catch-All)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Standard high-security ABAC helper primitives
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    function isOwner(userId) {
+      return isSignedIn() && request.auth.uid == userId;
+    }
+
+    function isEmailVerified() {
+      return isSignedIn() && request.auth.token.email_verified == true;
+    }
+
+    function isValidId(id) {
+      return id is string && id.size() <= 128 && id.matches('^[a-zA-Z0-9_\\-]+$');
+    }
+
+    // 2. USER PROFILE PATH RULES
+    match /users/{userId} {
+      // Allow players to read their own balance and metrics
+      allow get: if isOwner(userId);
+      // Deny generic collection listing to prevent scraping attacks
+      allow list: if false;
+
+      // Define standard profile validation helper (Anti-Update-Gap)
+      function isValidUser(data) {
+        return data.pokiBalance is number
+          && data.highestGameDistance is int
+          && data.lastSyncTimestamp is int
+          && data.emailVerified is bool;
+      }
+
+      // Allows users to create their standard record initially with precise zero parameters
+      allow create: if isOwner(userId)
+        && isValidUser(request.resource.data)
+        && request.resource.data.keys().hasAll(['pokiBalance', 'highestGameDistance', 'lastSyncTimestamp', 'emailVerified'])
+        && request.resource.data.keys().size() == 4
+        // Players cannot create an inflated setup on first boot
+        && request.resource.data.pokiBalance == 0.00
+        && request.resource.data.highestGameDistance == 0;
+
+      // Incremental balance sync actions (Split into actions gate)
+      allow update: if isOwner(userId)
+        && isEmailVerified()
+        && isValidUser(request.resource.data)
+        // Ensure emailVerified and immutable nodes cannot be poisoned
+        && request.resource.data.emailVerified == resource.data.emailVerified
+        && (
+          // Action 1: Minor ledger delta syncs (allows ticking balances)
+          request.resource.data.diff(resource.data).affectedKeys().hasOnly(['pokiBalance', 'highestGameDistance', 'lastSyncTimestamp'])
+        );
+
+      allow delete: if false; // profiles are permanent
+
+      // 3. LEDGER TRANS AUDIT SUBCOLLECTION
+      match /ledger/{ledgerId} {
+        allow get: if isOwner(userId);
+        
+        // Block lists to secure dynamic scrapers
+        allow list: if false;
+
+        function isValidLedgerEntry(data) {
+          return data.coinsCollected is int
+            && data.gain is number
+            && data.gameScore is int
+            && data.hashSignature is string
+            && data.hashSignature.size() <= 256
+            && data.timestamp is int
+            && data.status is string
+            && data.status == 'VERIFIED_LEDGER_CONSENSUS';
+        }
+
+        // Write actions must be appended securely matching real-time timestamp
+        allow create: if isOwner(userId)
+          && isEmailVerified()
+          && isValidId(ledgerId)
+          && isValidLedgerEntry(request.resource.data)
+          && request.resource.data.keys().hasAll(['coinsCollected', 'gain', 'gameScore', 'hashSignature', 'timestamp', 'status'])
+          && request.resource.data.keys().size() == 6;
+
+        allow update, delete: if false; // history cannot be edited
+      }
+    }
+  }
+}
