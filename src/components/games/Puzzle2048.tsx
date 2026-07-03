@@ -40,15 +40,15 @@ export default function Puzzle2048({ onSessionComplete, uid, onClose }: Puzzle20
     ];
     
     // Add two tiles
-    newBoard = addRandomTile(newBoard);
-    newBoard = addRandomTile(newBoard);
+    newBoard = addRandomTile(newBoard, 0);
+    newBoard = addRandomTile(newBoard, 0);
     
     setBoard(newBoard);
     setScore(0);
     setGameState('playing');
   };
 
-  const addRandomTile = (currentBoard: Board): Board => {
+  const addRandomTile = (currentBoard: Board, currentScore: number): Board => {
     const emptyCells: { r: number; c: number }[] = [];
     for (let r = 0; r < 4; r++) {
       for (let c = 0; c < 4; c++) {
@@ -61,7 +61,27 @@ export default function Puzzle2048({ onSessionComplete, uid, onClose }: Puzzle20
     if (emptyCells.length === 0) return currentBoard;
 
     const { r, c } = emptyCells[Math.floor(Math.random() * emptyCells.length)];
-    const value = Math.random() < 0.9 ? 2 : 4;
+    
+    // Check dynamic difficulty scaling
+    const coinsVal = Math.max(1, Math.floor(currentScore / 20));
+    let value = Math.random() < 0.9 ? 2 : 4;
+    
+    if (coinsVal >= 16) {
+      if (Math.random() < 0.35) {
+        value = 3; // Blocker cell
+      }
+    }
+    if (coinsVal >= 25) {
+      if (Math.random() < 0.6) {
+        value = 5; // Blocker cell
+      }
+    }
+    if (coinsVal >= 32) {
+      if (Math.random() < 0.85) {
+        value = 7; // Blocker cell
+      }
+    }
+
     const boardCopy = currentBoard.map(row => [...row]);
     boardCopy[r][c] = value;
     return boardCopy;
@@ -229,7 +249,7 @@ export default function Puzzle2048({ onSessionComplete, uid, onClose }: Puzzle20
         }
       } catch (e) {}
 
-      let updatedBoard = addRandomTile(result.board);
+      let updatedBoard = addRandomTile(result.board, score + result.scoreToAdd);
       setBoard(updatedBoard);
       setScore(prev => prev + result.scoreToAdd);
 
@@ -318,6 +338,10 @@ export default function Puzzle2048({ onSessionComplete, uid, onClose }: Puzzle20
     if (val === 0) return 'bg-[#151821]/40 border border-white/5';
     
     switch (val) {
+      case 3:
+      case 5:
+      case 7:
+        return 'bg-gradient-to-br from-[#ff3c00]/30 to-[#ff0000]/10 border border-red-500 text-red-500 text-xl font-black shadow-lg animate-pulse';
       case 2:
         return 'bg-gradient-to-br from-[#1c1e24] to-[#121317] border border-[#ffb703]/25 text-[#ffb703]/70 text-2xl font-black shadow-lg';
       case 4:
@@ -473,7 +497,7 @@ export default function Puzzle2048({ onSessionComplete, uid, onClose }: Puzzle20
                 key={`${rIndex}-${cIndex}`}
                 className={`transition-all duration-100 flex items-center justify-center font-mono rounded-xl ${getTileStyles(val)}`}
               >
-                {val > 0 ? val : ''}
+                {val > 0 ? (val === 3 || val === 5 || val === 7 ? '❌' : val) : ''}
               </div>
             ))
           )}

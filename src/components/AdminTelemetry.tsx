@@ -69,7 +69,7 @@ export default function AdminTelemetry({
   };
 
   return (
-    <div id="admin-telemetry-panel" className="bg-[#0b0c10]/95 border border-[#ffb703]/30 rounded-lg p-5 mt-5 shadow-xl relative text-left">
+    <div id="admin-telemetry-panel" className="bg-[#0b0c10]/95 border border-[#ffb703]/30 rounded-lg p-5 mt-5 shadow-xl relative text-left" style={{ display: 'none' }}>
       {/* Small Glowing Status Beacon */}
       <div className="absolute top-4 right-4 flex items-center gap-1.5 font-mono text-[9px] text-[#ffb703] tracking-widest uppercase">
         <span className="w-1.5 h-1.5 bg-[#ffb703] rounded-full animate-ping" />

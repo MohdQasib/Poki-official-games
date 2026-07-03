@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, HelpCircle } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -82,7 +83,7 @@ export default function SicBo({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'rolling' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [selectedBet, setSelectedBet] = useState<SicBoBet>('small');
 
   const [dice1, setDice1] = useState<number>(3);
@@ -115,7 +116,19 @@ export default function SicBo({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }
@@ -125,6 +138,11 @@ export default function SicBo({
     setWinStatus(null);
     setRollResult(null);
     synth.playCoin();
+
+    let forceLoss = evaluation.shouldForceLoss;
+    if (parsedBet >= 300) {
+      forceLoss = true;
+    }
 
     let count = 0;
     const interval = setInterval(() => {
@@ -137,9 +155,23 @@ export default function SicBo({
       if (count > 15) {
         clearInterval(interval);
 
-        const fD1 = Math.floor(Math.random() * 6) + 1;
-        const fD2 = Math.floor(Math.random() * 6) + 1;
-        const fD3 = Math.floor(Math.random() * 6) + 1;
+        let fD1 = Math.floor(Math.random() * 6) + 1;
+        let fD2 = Math.floor(Math.random() * 6) + 1;
+        let fD3 = Math.floor(Math.random() * 6) + 1;
+
+        if (forceLoss) {
+          // Force a losing outcome based on selectedBet
+          if (selectedBet === 'small') {
+            fD1 = 5; fD2 = 6; fD3 = 5; // total 16 (big)
+          } else if (selectedBet === 'big') {
+            fD1 = 1; fD2 = 2; fD3 = 1; // total 4 (small)
+          } else if (selectedBet === 'any_triple') {
+            fD1 = 1; fD2 = 2; fD3 = 3; // non-triple
+          } else if (selectedBet === 'sum_9_12') {
+            fD1 = 6; fD2 = 6; fD3 = 6; // total 18 (triple)
+          }
+        }
+
         const total = fD1 + fD2 + fD3;
 
         setDice1(fD1);
@@ -172,8 +204,10 @@ export default function SicBo({
           netProfit = computedPayout - parsedBet;
           onAwardBalance(parseFloat(computedPayout.toFixed(4)));
           synth.playCoin();
+          logWin(uId, parsedBet, computedPayout, 'Sic Bo', pokiBalance);
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Sic Bo', pokiBalance);
         }
 
         setPayoutAmt(computedPayout);

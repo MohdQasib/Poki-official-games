@@ -30,6 +30,7 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
     platforms: [] as Array<{ x: number; y: number; w: number; h: number; isMoving: boolean; direction: number; hasCoin: boolean; coinCollected: boolean }>,
     particles: [] as Array<{ x: number; y: number; vx: number; vy: number; color: string; size: number; alpha: number; life: number }>,
     gameTime: 0,
+    collectedCoinsCount: 0,
   });
 
   // Handle Resize
@@ -39,7 +40,7 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       const container = containerRef.current;
       if (canvas && container) {
         canvas.width = container.clientWidth;
-        canvas.height = Math.min(container.clientHeight, 400);
+        canvas.height = container.clientHeight || 400;
       }
     };
     window.addEventListener('resize', handleResize);
@@ -131,7 +132,8 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       isLeftPressed: false,
       platforms: initPlatforms,
       particles: [],
-      gameTime: 0
+      gameTime: 0,
+      collectedCoinsCount: 0
     };
 
     setGameState('playing');
@@ -275,14 +277,36 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       // Generate highest platform on screen pan
       while (st.platforms.length < 15) {
         const topY = st.platforms.length === 0 ? h : Math.min(...st.platforms.map((p) => p.y));
-        const py = topY - 50;
+        
+        const currentCoins = st.collectedCoinsCount || 0;
+        let spacing = 50;
+        let platformWidth = 52;
+        let moveChance = 0.45;
+
+        if (currentCoins >= 16) {
+          spacing = 50 + (currentCoins - 15) * 4;
+          platformWidth = Math.max(30, 52 - (currentCoins - 15) * 1.5);
+          moveChance = 0.7;
+        }
+        if (currentCoins >= 25) {
+          spacing = 70 + (currentCoins - 24) * 8;
+          platformWidth = Math.max(18, 38 - (currentCoins - 24) * 2.0);
+          moveChance = 0.95;
+        }
+        if (currentCoins >= 32) {
+          spacing = 110;
+          platformWidth = 10;
+          moveChance = 1.0;
+        }
+
+        const py = topY - spacing;
         const px = 10 + Math.random() * (w - 70);
         st.platforms.push({
           x: px,
           y: py,
-          w: 52,
+          w: platformWidth,
           h: 8,
-          isMoving: Math.random() < 0.45,
+          isMoving: Math.random() < moveChance,
           direction: Math.random() > 0.5 ? 1 : -1,
           hasCoin: Math.random() < 0.25,
           coinCollected: false
@@ -293,11 +317,26 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       st.platforms = st.platforms.filter((p) => p.y < h + 50);
 
       // Rendering sequence
-      ctx.fillStyle = '#0b0c10';
+      ctx.fillStyle = '#08090d';
       ctx.fillRect(0, 0, w, h);
 
-      // Web vector background grids
-      ctx.strokeStyle = '#1d222e';
+      // Starry Space Parallax background
+      ctx.fillStyle = '#ffffff';
+      for (let i = 0; i < 40; i++) {
+        const starX = (Math.abs(Math.sin(i * 123.45)) * w);
+        const starY = (Math.abs(Math.cos(i * 543.21)) * h + st.cameraY * (0.15 + (i % 3) * 0.1)) % h;
+        const starSize = 0.8 + (i % 3) * 0.6;
+        const twinkle = 0.3 + 0.7 * Math.abs(Math.sin(st.gameTime * 0.02 + i));
+        ctx.save();
+        ctx.globalAlpha = twinkle;
+        ctx.beginPath();
+        ctx.arc(starX, starY, starSize, 0, Math.PI * 2);
+        ctx.fill();
+        ctx.restore();
+      }
+
+      // Web vector background grids with subtle blue overlay
+      ctx.strokeStyle = 'rgba(0, 225, 255, 0.05)';
       ctx.lineWidth = 0.5;
       const gridSize = 40;
       const scrollOffset = st.cameraY % gridSize;
@@ -318,24 +357,42 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       st.platforms.forEach((p) => {
         // Platform dynamic movement update
         if (p.isMoving) {
-          p.x += p.direction * 1.2;
+          const currentCoins = st.collectedCoinsCount || 0;
+          let activeSpeed = 1.2;
+          if (currentCoins >= 16) {
+            activeSpeed = 1.2 + (currentCoins - 15) * 0.15;
+          }
+          if (currentCoins >= 25) {
+            activeSpeed = 2.5 + (currentCoins - 24) * 0.35;
+          }
+          if (currentCoins >= 32) {
+            activeSpeed = 5.0;
+          }
+          p.x += p.direction * activeSpeed;
           if (p.x < 10 || p.x + p.w > w - 10) {
             p.direction *= -1;
           }
         }
 
-        // Draw neon platform panel
-        ctx.fillStyle = p.isMoving ? '#00e1ff' : '#171a21';
-        ctx.strokeStyle = p.isMoving ? '#00c3ff' : '#ffd166';
-        ctx.lineWidth = 1.3;
+        // Draw neon glowing platform panel
+        ctx.save();
+        ctx.shadowColor = p.isMoving ? '#00e1ff' : '#ffd166';
+        ctx.shadowBlur = p.isMoving ? 10 : 5;
+        ctx.fillStyle = p.isMoving ? 'rgba(0, 225, 255, 0.25)' : '#171a21';
+        ctx.strokeStyle = p.isMoving ? '#00e1ff' : '#ffd166';
+        ctx.lineWidth = 1.5;
         ctx.beginPath();
-        ctx.roundRect(p.x, p.y, p.w, p.h, 3);
+        ctx.roundRect(p.x, p.y, p.w, p.h, 4);
         ctx.fill();
         ctx.stroke();
+        ctx.restore();
 
-        // Draw Platform safety lock symbols inside
-        ctx.fillStyle = p.isMoving ? 'rgba(0, 225, 255, 0.15)' : 'rgba(255, 183, 3, 0.1)';
-        ctx.fillRect(p.x + 4, p.y + 1, p.w - 8, p.h - 2);
+        // Platform center line accents
+        ctx.strokeStyle = p.isMoving ? 'rgba(0, 225, 255, 0.4)' : 'rgba(255, 183, 3, 0.2)';
+        ctx.beginPath();
+        ctx.moveTo(p.x + 8, p.y + p.h / 2);
+        ctx.lineTo(p.x + p.w - 8, p.y + p.h / 2);
+        ctx.stroke();
 
         // Render Coin above platform
         if (p.hasCoin && !p.coinCollected) {
@@ -372,7 +429,8 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
           const distToCoin = Math.hypot(coinX - st.playerX, coinY - st.playerY);
           if (distToCoin < 13 + 6) {
             p.coinCollected = true;
-            setCoins((c) => c + 1);
+            st.collectedCoinsCount = (st.collectedCoinsCount || 0) + 1;
+            setCoins(st.collectedCoinsCount);
             synth.playCoin();
 
             // Fire tiny sparkles
@@ -400,7 +458,7 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
         pt.alpha = pt.life / 15;
 
         ctx.save();
-        ctx.globalAlpha = pt.alpha;
+        ctx.globalAlpha = Math.max(0, pt.alpha);
         ctx.fillStyle = pt.color;
         ctx.beginPath();
         ctx.arc(pt.x, pt.y, pt.size, 0, Math.PI * 2);
@@ -414,39 +472,68 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       ctx.save();
       ctx.translate(st.playerX, st.playerY);
 
-      // Character styling: Cute gold space landing probe
-      ctx.fillStyle = '#171a21';
+      // Draw active beautiful propulsion fire flare
+      if (st.playerVY < 1) {
+        const fireHeight = 8 + Math.abs(st.playerVY) * 1.5 + Math.sin(st.gameTime * 0.4) * 4;
+        const grad = ctx.createLinearGradient(0, 4, 0, 4 + fireHeight);
+        grad.addColorStop(0, '#ff3c00');
+        grad.addColorStop(0.5, '#ffb703');
+        grad.addColorStop(1, 'rgba(255, 183, 3, 0)');
+        ctx.fillStyle = grad;
+        ctx.beginPath();
+        ctx.moveTo(-4, 4);
+        ctx.quadraticCurveTo(0, 4 + fireHeight * 1.2, 0, 4 + fireHeight);
+        ctx.quadraticCurveTo(0, 4 + fireHeight * 1.2, 4, 4);
+        ctx.closePath();
+        ctx.fill();
+      }
+
+      // Sleek Futuristic Spaceship design
+      ctx.fillStyle = '#1a1c23';
       ctx.strokeStyle = '#ffb703';
-      ctx.lineWidth = 2.5;
-      
-      // Upper head dome
+      ctx.lineWidth = 2.0;
+
+      // Outer wings
+      ctx.save();
+      ctx.fillStyle = '#111317';
       ctx.beginPath();
-      ctx.arc(0, -2, 10, Math.PI, 0, false);
+      ctx.moveTo(-5, 2);
+      ctx.lineTo(-12, 6);
+      ctx.lineTo(-5, 6);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // Golden digital eye visor
-      ctx.fillStyle = '#ffb703';
       ctx.beginPath();
-      ctx.ellipse(0, -5, 6, 2.5, 0, 0, Math.PI * 2);
+      ctx.moveTo(5, 2);
+      ctx.lineTo(12, 6);
+      ctx.lineTo(5, 6);
+      ctx.closePath();
       ctx.fill();
-
-      // Lower physical propulsion legs
-      ctx.strokeStyle = '#ffe893';
-      ctx.lineWidth = 1.8;
-      ctx.beginPath();
-      // left leg
-      ctx.moveTo(-6, 2);
-      ctx.lineTo(-10, 10);
-      ctx.moveTo(-10, 10);
-      ctx.lineTo(-7, 10);
-      // right leg
-      ctx.moveTo(6, 2);
-      ctx.lineTo(10, 10);
-      ctx.moveTo(10, 10);
-      ctx.lineTo(7, 10);
       ctx.stroke();
+      ctx.restore();
+
+      // Main cockpit body
+      ctx.beginPath();
+      ctx.moveTo(0, -14); // Nose cone
+      ctx.lineTo(8, 2);   // Right hull
+      ctx.lineTo(5, 5);   // Bottom right
+      ctx.lineTo(-5, 5);  // Bottom left
+      ctx.lineTo(-8, 2);  // Left hull
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+
+      // Glowing cockpit canopy window
+      ctx.fillStyle = '#00e1ff';
+      ctx.shadowColor = '#00e1ff';
+      ctx.shadowBlur = 4;
+      ctx.beginPath();
+      ctx.moveTo(0, -10);
+      ctx.lineTo(4, -2);
+      ctx.lineTo(-4, -2);
+      ctx.closePath();
+      ctx.fill();
 
       ctx.restore();
 
@@ -454,7 +541,7 @@ export default function PokiJumpOverdrive({ onSessionComplete, uid, onClose }: G
       if (st.playerY > h + 40) {
         cancelAnimationFrame(animId);
         synth.playCrash();
-        syncGameData(Math.floor(st.scoreTracker / 10), st.platforms.filter(p => p.coinCollected).length);
+        syncGameData(Math.floor(st.scoreTracker / 10), st.collectedCoinsCount || 0);
       } else {
         animId = requestAnimationFrame(loop);
       }

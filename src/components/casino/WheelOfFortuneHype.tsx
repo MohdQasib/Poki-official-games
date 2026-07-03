@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, Play, ShieldAlert, Award, Grid, HelpCircle, AlertTriangle } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -43,7 +44,7 @@ export default function WheelOfFortuneHype({
   const animRef = useRef<number | null>(null);
 
   const [gameState, setGameState] = useState<'idle' | 'spinning' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   const [selectedMultiplier, setSelectedMultiplier] = useState<number | null>(null);
   const [payoutAmt, setPayoutAmt] = useState<number>(0);
@@ -142,11 +143,11 @@ export default function WheelOfFortuneHype({
     ctx.fillStyle = '#d4af37';
     ctx.fill();
 
-    // Top indicator needle with neon amber glowing center
+    // Top indicator needle pointing down towards the wheel center
     ctx.beginPath();
-    ctx.moveTo(cx, cy - radius - 12);
-    ctx.lineTo(cx - 12, cy - radius + 15);
-    ctx.lineTo(cx + 12, cy - radius + 15);
+    ctx.moveTo(cx, cy - radius + 15); // Tip pointing down, towards wheel
+    ctx.lineTo(cx - 12, cy - radius - 12); // Left base point
+    ctx.lineTo(cx + 12, cy - radius - 12); // Right base point
     ctx.closePath();
     ctx.fillStyle = '#f39c12';
     ctx.fill();
@@ -166,7 +167,19 @@ export default function WheelOfFortuneHype({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }
@@ -177,6 +190,11 @@ export default function WheelOfFortuneHype({
     setPayoutAmt(0);
     setWinStatus(null);
     synth.playCoin();
+
+    let forceLoss = evaluation.shouldForceLoss;
+    if (parsedBet >= 300) {
+      forceLoss = true;
+    }
 
     let spinVelocity = 0.55 + Math.random() * 0.45; 
     let deceleration = 0.0035;
@@ -199,6 +217,15 @@ export default function WheelOfFortuneHype({
         const sectorAngle = (Math.PI * 2) / totalSecs;
         const indicatorAngle = -Math.PI / 2;
 
+        if (forceLoss) {
+          // Force lands on sector 0 (BUST)
+          const targetLandedIdx = 0;
+          const targetNormalized = (targetLandedIdx + 0.35) * sectorAngle;
+          localAngle = indicatorAngle - targetNormalized;
+          currentAngleRef.current = localAngle;
+          drawWheel(localAngle);
+        }
+
         let normalizedAngle = (indicatorAngle - localAngle) % (Math.PI * 2);
         if (normalizedAngle < 0) normalizedAngle += Math.PI * 2;
 
@@ -214,8 +241,10 @@ export default function WheelOfFortuneHype({
         if (isWin) {
           onAwardBalance(parseFloat(computedPayout.toFixed(4)));
           synth.playCoin();
+          logWin(uId, parsedBet, computedPayout, 'Wheel of Hype', pokiBalance);
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Wheel of Hype', pokiBalance);
         }
 
         setPayoutAmt(computedPayout);
@@ -309,25 +338,42 @@ export default function WheelOfFortuneHype({
             ref={canvasRef}
             width={340}
             height={340}
-            className="w-[280px] h-[280px] sm:w-[320px] sm:h-[320px] transition-transform shadow-2xl relative z-10 bg-transparent rounded-full"
+            className="w-[200px] h-[200px] xs:w-[230px] xs:h-[230px] sm:w-[280px] sm:h-[280px] transition-transform shadow-2xl relative z-10 bg-transparent rounded-full"
           />
 
-          {/* Settle Panel */}
+          {/* Centered Results Modal Popup Overlay */}
           {gameState === 'settled' && selectedMultiplier !== null && (
-            <div className="absolute inset-x-0 bottom-2 flex justify-center p-3 z-20 animate-fade-in">
-              <div className="bg-zinc-900/90 border border-zinc-800 rounded-xl p-3 text-center max-w-xs w-full shadow-2xl backdrop-blur-md">
-                <div className="text-zinc-500 text-[9px] uppercase font-mono tracking-widest">Landed multiplier</div>
-                <div className="text-2xl font-black text-[#d4af37] font-mono uppercase tracking-wider">
-                  {selectedMultiplier === 100.0 ? 'GRAND JACKPOT!' : `${selectedMultiplier.toFixed(1)}x Payout`}
-                </div>
-                <div className={`mt-2 text-[10px] font-bold font-mono tracking-wider uppercase px-3 py-1 rounded-lg border ${
-                  winStatus
-                    ? 'bg-emerald-950/40 text-emerald-400 border-emerald-500/30 shadow-[0_0_12px_rgba(16,185,129,0.15)]'
-                    : 'bg-rose-950/40 text-rose-400 border-rose-500/30'
-                }`}>
-                  {winStatus ? `YOU WIN: +${payoutAmt.toFixed(2)}` : 'BUSTED'}
-                </div>
+            <div className="absolute inset-0 bg-black/90 flex flex-col items-center justify-center z-30 p-4 text-center animate-fade-in rounded-2xl">
+              <div className="w-14 h-14 rounded-full bg-zinc-900 border border-zinc-800 flex items-center justify-center mb-2.5">
+                {winStatus ? (
+                  <Award className="w-7 h-7 text-[#d4af37] animate-pulse" />
+                ) : (
+                  <ShieldAlert className="w-7 h-7 text-rose-500 animate-bounce" />
+                )}
               </div>
+              
+              <h3 className="text-white font-sans font-black text-lg uppercase tracking-wider mb-1">
+                {selectedMultiplier === 100 ? '⭐ GRAND JACKPOT! ⭐' : winStatus ? '🎉 YOU WON!' : '✕ BUSTED'}
+              </h3>
+              
+              <span className="text-[9px] font-mono tracking-widest text-[#d4af37] uppercase bg-[#d4af37]/10 border border-[#d4af37]/20 rounded px-2.5 py-0.5 mb-3 block">
+                {selectedMultiplier === 100 ? '100.0x payout' : `${selectedMultiplier.toFixed(1)}x multiplier`}
+              </span>
+
+              <div className="text-xl font-mono font-bold mb-4">
+                {winStatus ? (
+                  <span className="text-emerald-400 font-black">+{payoutAmt.toFixed(2)} PKG</span>
+                ) : (
+                  <span className="text-rose-500 font-black">-{betAmount.toFixed(2)} PKG</span>
+                )}
+              </div>
+
+              <button
+                onClick={() => setGameState('idle')}
+                className="px-5 py-2.5 bg-gradient-to-r from-[#d4af37] to-[#f39c12] text-black font-sans font-black text-xs uppercase rounded-xl hover:brightness-110 active:scale-95 transition shadow-lg shadow-[#d4af37]/20"
+              >
+                Spin Again
+              </button>
             </div>
           )}
         </div>

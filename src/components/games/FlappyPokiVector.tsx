@@ -176,9 +176,44 @@ export default function FlappyPokiVector({ onSessionComplete, uid, onClose }: Ga
 
       st.gameTime++;
 
+      // COMPONENT DYNAMIC DIFFICULTY SCALING based on score / coins (Specification 1)
+      let activeSpeed = 3.2;
+      let activeGravity = 0.28;
+      let activeGap = 105;
+
+      const currentCoins = score * 2;
+
+      if (currentCoins >= 16) {
+        // scale obstacles/speeds exponentially
+        const scaleFactor = 1.0 + (currentCoins - 15) * 0.12;
+        activeSpeed = 3.2 * scaleFactor;
+        activeGravity = 0.28 * Math.pow(1.08, currentCoins - 15);
+        activeGap = Math.max(55, 105 - (currentCoins - 15) * 4);
+      }
+      
+      if (currentCoins >= 25) {
+        // Sudden Death tier
+        const scaleFactor = 1.0 + (currentCoins - 15) * 0.22;
+        activeSpeed = 3.2 * scaleFactor * 1.5;
+        activeGravity = 0.28 * Math.pow(1.15, currentCoins - 15) * 1.4;
+        activeGap = Math.max(42, 60 - (currentCoins - 24) * 3); // extremely narrow gap size guaranteeing a quick skill-based knockout
+      }
+
+      if (currentCoins >= 32) {
+        // Extreme impossible barrier
+        activeSpeed = 15;
+        activeGravity = 0.9;
+        activeGap = 35; // mathematically near-impossible to survive multiple
+      }
+
       // Physics constants gravity pulls coin down
-      const gravity = 0.28;
-      st.pokiVY += gravity;
+      if ((window as any).isExtremeHardMode) {
+        activeSpeed *= 2.5;
+        activeGravity *= 2.5;
+        activeGap = Math.max(30, activeGap / 2);
+      }
+
+      st.pokiVY += activeGravity;
       st.pokiY += st.pokiVY;
 
       // Check ground collision
@@ -187,12 +222,12 @@ export default function FlappyPokiVector({ onSessionComplete, uid, onClose }: Ga
         return;
       }
 
-      // Update & Draw Pipe bounds
-      if (st.gameTime % 110 === 0) {
-        // Spawn subsequent pipes
-        const maxH = h - st.gapSize - 60;
+      // Spawn subsequent pipes using adjusted speed interval
+      const spawnInterval = Math.max(40, Math.round(110 / (activeSpeed / 3.2)));
+      if (st.gameTime % spawnInterval === 0) {
+        const maxH = h - activeGap - 60;
         const topH = 30 + Math.floor(Math.random() * maxH);
-        const botH = h - topH - st.gapSize;
+        const botH = h - topH - activeGap;
         st.pipes.push({
           x: w + 20,
           topHeight: topH,
@@ -227,7 +262,7 @@ export default function FlappyPokiVector({ onSessionComplete, uid, onClose }: Ga
       // Update Pipes and checking collision states
       let hasHitPipe = false;
       st.pipes.forEach((pipe) => {
-        pipe.x -= st.speed;
+        pipe.x -= activeSpeed;
 
         // Draw top pipeline node (Dark slate with yellow borders)
         ctx.fillStyle = '#171a21';
@@ -283,7 +318,7 @@ export default function FlappyPokiVector({ onSessionComplete, uid, onClose }: Ga
         if (!pipe.passed && pipe.x + pipe.width < px) {
           pipe.passed = true;
           setScore((s) => s + 1);
-          setCoins((c) => c + 5); // passing successfully awards +5 Pokicoins
+          setCoins((c) => c + 2); // passing successfully awards +2 Poki Gold
           synth.playCoin();
 
           // Spawn celebration green indicators
@@ -418,7 +453,7 @@ export default function FlappyPokiVector({ onSessionComplete, uid, onClose }: Ga
               FLAPPY POKI VECTOR
             </h2>
             <p className="text-xs text-gray-400 max-w-sm mt-2 mb-6">
-              Click, Tap, or press <span className="text-[#ffd166] font-bold">Spacebar</span> to boost the Pokicoin flying upward. Traverse safely through narrow pipe grids. Passing lists earns <span className="text-emerald-400 font-bold">+5 Pokicoins</span> instantly!
+              Click, Tap, or press <span className="text-[#ffd166] font-bold">Spacebar</span> to boost the Pokicoin flying upward. Traverse safely through narrow bridge grids. Passing bridges earns <span className="text-emerald-400 font-bold">+2 Poki Gold</span> instantly!
             </p>
             <button
               onClick={(e) => {

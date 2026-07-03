@@ -18,6 +18,10 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
   const [securedTransaction, setSecuredTransaction] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<string>('');
 
+  const [currentStage, setCurrentStage] = useState<number>(1);
+  const [lives, setLives] = useState<number>(3);
+  const [isTransitioning, setIsTransitioning] = useState<boolean>(false);
+
   const stateRef = useRef({
     paddleX: 180,
     paddleW: 72,
@@ -26,11 +30,12 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
     ballVX: 2.5,
     ballVY: -3,
     ballRadius: 6,
-    bricks: [] as Array<{ x: number; y: number; w: number; h: number; intact: boolean; isGold: boolean }>,
+    bricks: [] as Array<{ x: number; y: number; w: number; h: number; intact: boolean; isGold: boolean; durability: number; maxDurability: number }>,
     lootCoins: [] as Array<{ x: number; y: number; vy: number; radius: number; collected: boolean; angle: number }>,
     particles: [] as Array<{ x: number; y: number; vx: number; vy: number; color: string; size: number; alpha: number; life: number }>,
     gameTime: 0,
     speedFactor: 1.0,
+    coinsCollected: 0,
   });
 
   // Scale Viewport
@@ -67,35 +72,58 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
     stateRef.current.paddleX = (relativeX / rect.width) * canvas.width - stateRef.current.paddleW / 2;
   };
 
-  const startNewGame = () => {
-    synth.playCoin();
-    setScore(0);
-    setCoins(0);
-    setSecuredTransaction(null);
-    setSyncStatus('');
-
-    // Prepopulate brick lattice layout inside top quadrant
-    const rows = 4;
-    const cols = 7;
+  const generateBricksForStage = (stage: number) => {
+    const durabilityMultiplier = Math.floor((stage - 1) / 3) + 1;
     const padding = 6;
     const brickW = 54;
     const brickH = 14;
+    const cols = 7;
+    const rows = Math.min(6, 3 + Math.floor(stage / 5));
+
     const startX = (440 - (cols * (brickW + padding) - padding)) / 2;
     const startY = 40;
 
     const nextBricks = [];
     for (let r = 0; r < rows; r++) {
       for (let c = 0; c < cols; c++) {
-        nextBricks.push({
-          x: startX + c * (brickW + padding),
-          y: startY + r * (brickH + padding),
-          w: brickW,
-          h: brickH,
-          intact: true,
-          isGold: Math.random() < 0.28, // Bricks holding gold coin loot
-        });
+        let spawn = true;
+        if (stage % 4 === 1) {
+          spawn = (r + c) % 2 === 0;
+        } else if (stage % 4 === 2) {
+          spawn = !(r > 0 && r < rows - 1 && c > 1 && c < cols - 2);
+        } else if (stage % 4 === 3) {
+          spawn = Math.abs(c - 3) >= r;
+        }
+
+        if (spawn) {
+          const maxBrickDurability = Math.max(1, Math.min(durabilityMultiplier, Math.floor((rows - r) / 2) + 1));
+          nextBricks.push({
+            x: startX + c * (brickW + padding),
+            y: startY + r * (brickH + padding),
+            w: brickW,
+            h: brickH,
+            intact: true,
+            isGold: Math.random() < Math.min(0.5, 0.2 + stage * 0.01),
+            durability: maxBrickDurability,
+            maxDurability: maxBrickDurability,
+          });
+        }
       }
     }
+    return nextBricks;
+  };
+
+  const startNewGame = () => {
+    synth.playCoin();
+    setScore(0);
+    setCoins(0);
+    setLives(3);
+    setCurrentStage(1);
+    setIsTransitioning(false);
+    setSecuredTransaction(null);
+    setSyncStatus('');
+
+    const nextBricks = generateBricksForStage(1);
 
     stateRef.current = {
       paddleX: (440 - 72) / 2,
@@ -110,6 +138,7 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
       particles: [],
       gameTime: 0,
       speedFactor: 1.0,
+      coinsCollected: 0,
     };
 
     setGameState('playing');
@@ -167,7 +196,7 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
 
   // Gameloop logic
   useEffect(() => {
-    if (gameState !== 'playing') return;
+    if (gameState !== 'playing' || isTransitioning) return;
 
     let animId: number;
     const canvas = canvasRef.current;
@@ -182,9 +211,24 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
 
       st.gameTime++;
 
+      const currentCoins = st.coinsCollected || 0;
+      let extraSpeedFactor = 1.0;
+      if (currentCoins >= 16) {
+        extraSpeedFactor += (currentCoins - 15) * 0.12;
+        st.paddleW = Math.max(30, 72 - (currentCoins - 15) * 3);
+      }
+      if (currentCoins >= 25) {
+        extraSpeedFactor += (currentCoins - 24) * 0.22;
+        st.paddleW = Math.max(16, 72 - (currentCoins - 15) * 4);
+      }
+      if (currentCoins >= 32) {
+        extraSpeedFactor += (currentCoins - 31) * 0.4;
+        st.paddleW = 10;
+      }
+
       // Ball Coordinate Physics Movement
-      st.ballX += st.ballVX;
-      st.ballY += st.ballVY;
+      st.ballX += st.ballVX * extraSpeedFactor;
+      st.ballY += st.ballVY * extraSpeedFactor;
 
       // Wall reflections
       if (st.ballX < st.ballRadius) {
@@ -222,7 +266,7 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
         st.speedFactor = Math.min(1.5, st.speedFactor + 0.02);
       }
 
-      // Ball VS Brick grid intersections
+      // Ball VS Brick grid intersections (progressive durability)
       let winStreak = true;
       st.bricks.forEach((brick) => {
         if (!brick.intact) return;
@@ -235,44 +279,103 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
           st.ballY + st.ballRadius > brick.y &&
           st.ballY - st.ballRadius < brick.y + brick.h
         ) {
-          brick.intact = false;
           st.ballVY *= -1;
-          setScore((s) => s + 10);
-          synth.playCoin();
+          
+          // Decrement durability
+          brick.durability--;
+          if (brick.durability <= 0) {
+            brick.intact = false;
+            setScore((s) => s + 10);
+            synth.playCoin();
 
-          // Spawn particle spray
-          for (let i = 0; i < 4; i++) {
-            st.particles.push({
-              x: brick.x + brick.w / 2,
-              y: brick.y + brick.h / 2,
-              vx: (Math.random() - 0.5) * 4,
-              vy: (Math.random() - 0.5) * 4,
-              color: brick.isGold ? '#ffb703' : '#a1a8b9',
-              size: 2,
-              alpha: 1,
-              life: 14,
-            });
-          }
+            // Spawn particle spray
+            for (let i = 0; i < 4; i++) {
+              st.particles.push({
+                x: brick.x + brick.w / 2,
+                y: brick.y + brick.h / 2,
+                vx: (Math.random() - 0.5) * 4,
+                vy: (Math.random() - 0.5) * 4,
+                color: brick.isGold ? '#ffb703' : '#a1a8b9',
+                size: 2,
+                alpha: 1,
+                life: 14,
+              });
+            }
 
-          // Spawning golden cash coin loot
-          if (brick.isGold) {
-            st.lootCoins.push({
-              x: brick.x + brick.w / 2,
-              y: brick.y + brick.h,
-              vy: 1.8,
-              radius: 6.8,
-              collected: false,
-              angle: Math.random() * Math.PI,
-            });
+            // Spawning golden cash coin loot
+            if (brick.isGold) {
+              st.lootCoins.push({
+                x: brick.x + brick.w / 2,
+                y: brick.y + brick.h,
+                vy: 1.8,
+                radius: 6.8,
+                collected: false,
+                angle: Math.random() * Math.PI,
+              });
+            }
+          } else {
+            // Indestructible / cracked impact
+            try {
+              synth.playJump();
+            } catch (e) {}
+            for (let i = 0; i < 2; i++) {
+              st.particles.push({
+                x: st.ballX,
+                y: st.ballY,
+                vx: (Math.random() - 0.5) * 2.5,
+                vy: (Math.random() - 0.5) * 2.5,
+                color: b7Color(brick),
+                size: 1.5,
+                alpha: 1,
+                life: 10,
+              });
+            }
           }
         }
       });
 
-      // Victory auto check
-      if (winStreak) {
+      // Helper for brick hit particles
+      function b7Color(b: any) {
+        if (b.isGold) return '#ffe893';
+        if (b.durability === 2) return '#ff007f';
+        if (b.durability === 3) return '#39ff14';
+        return '#00ffff';
+      }
+
+      // Victory check
+      if (winStreak && !isTransitioning) {
         cancelAnimationFrame(animId);
         synth.playLevelUp();
-        syncGameData(score + 1000, coins + 20); // Massive completion reward bonus
+        
+        setIsTransitioning(true);
+        setTimeout(() => {
+          const nextLvl = currentStage + 1;
+          setCurrentStage(nextLvl);
+          setIsTransitioning(false);
+
+          const nextLattice = generateBricksForStage(nextLvl);
+          // speed scales up by 10% per level + base scale
+          const speedMult = 1.10 * (1 + 0.05 * (nextLvl - 1));
+
+          stateRef.current = {
+            paddleX: (440 - 72) / 2,
+            paddleW: 72,
+            ballX: 220,
+            ballY: 180,
+            ballVX: (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random() * 1.5) * speedMult,
+            ballVY: 3.2 * speedMult,
+            ballRadius: 6,
+            bricks: nextLattice,
+            lootCoins: [],
+            particles: [],
+            gameTime: 0,
+            speedFactor: 1.0,
+          };
+
+          setScore((s) => s + 500);
+          st.coinsCollected = (st.coinsCollected || 0) + 15;
+          setCoins(st.coinsCollected);
+        }, 2000);
         return;
       }
 
@@ -308,7 +411,8 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
             coin.x <= st.paddleX + st.paddleW
           ) {
             coin.collected = true;
-            setCoins((c) => c + 1);
+            st.coinsCollected = (st.coinsCollected || 0) + 1;
+            setCoins(st.coinsCollected);
             synth.playCoin();
           }
         }
@@ -338,12 +442,38 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
         ctx.stroke();
       }
 
-      // Render Bricks
+      // Render Bricks with progressive durability coloring
       st.bricks.forEach((b) => {
         if (!b.intact) return;
 
-        ctx.fillStyle = b.isGold ? '#ffb703' : '#171a21';
-        ctx.strokeStyle = b.isGold ? '#ffe893' : '#2a2f3b';
+        let fill = '#171a21';
+        let stroke = '#2a2f3b';
+        if (b.isGold) {
+          fill = '#ffb703';
+          stroke = '#ffe893';
+        } else {
+          switch (b.durability) {
+            case 1:
+              fill = '#171a21';
+              stroke = '#2a2f3b';
+              break;
+            case 2:
+              fill = '#822be2';
+              stroke = '#af5eff';
+              break;
+            case 3:
+              fill = '#ec38bc';
+              stroke = '#ff69b4';
+              break;
+            default:
+              fill = '#00f260';
+              stroke = '#39ff14';
+              break;
+          }
+        }
+
+        ctx.fillStyle = fill;
+        ctx.strokeStyle = stroke;
         ctx.lineWidth = 1.2;
 
         ctx.beginPath();
@@ -397,11 +527,23 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
       ctx.fill();
       ctx.shadowBlur = 0;
 
-      // Failure check
+      // Failure check (lives support)
       if (st.ballY > h + 30) {
         cancelAnimationFrame(animId);
         synth.playCrash();
-        syncGameData(score, coins);
+
+        if (lives > 1) {
+          setLives((l) => l - 1);
+          const speedMult = 1 + 0.05 * (currentStage - 1);
+          st.ballX = 220;
+          st.ballY = 180;
+          st.ballVX = (Math.random() > 0.5 ? 1 : -1) * (2 + Math.random() * 1.5) * speedMult;
+          st.ballVY = 3.2 * speedMult;
+          st.speedFactor = 1.0;
+        } else {
+          setLives(0);
+          syncGameData(score, coins);
+        }
       } else {
         animId = requestAnimationFrame(loop);
       }
@@ -409,7 +551,7 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
 
     animId = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(animId);
-  }, [gameState, score, coins]);
+  }, [gameState, score, coins, currentStage, lives, isTransitioning]);
 
   return (
     <div className="flex flex-col bg-[#0b0c10] border border-[#2a2f3b] rounded-lg overflow-hidden shadow-2xl relative w-full h-[450px]">
@@ -421,6 +563,12 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
           </span>
           <span className="text-xs text-[#ffb703] font-mono flex items-center gap-1">
             🪙 <span className="font-extrabold">{coins} Coin</span>
+          </span>
+          <span className="text-xs text-rose-400 font-mono flex items-center gap-1 ml-2">
+            ❤️ <span className="font-extrabold">x{lives}</span>
+          </span>
+          <span className="text-xs text-cyan-400 font-mono flex items-center gap-1 ml-2">
+            🚀 STAGE <span className="font-extrabold">{currentStage}</span>
           </span>
         </div>
         <div className="flex items-center gap-4 text-xs font-mono">
@@ -444,6 +592,17 @@ export default function NeonGridBrickBreaker({ onSessionComplete, uid, onClose }
         onTouchMove={handlePointerMove}
         className="flex-1 bg-[#0b0c10] relative flex items-center justify-center select-none cursor-none p-4"
       >
+        {isTransitioning && (
+          <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/90 backdrop-blur-sm z-30">
+            <Sparkles className="w-12 h-12 text-[#ffb703] animate-bounce mb-3" />
+            <h2 className="text-xl font-black text-[#ffb703] font-mono tracking-widest uppercase">
+              STAGE {currentStage} CLEARED!
+            </h2>
+            <p className="text-xs text-white/70 font-mono tracking-wider mt-1 uppercase animate-pulse">
+              Next level loading... Speed +5%
+            </p>
+          </div>
+        )}
         {gameState === 'idle' && (
           <div className="absolute inset-0 flex flex-col items-center justify-center bg-black/85 z-10 p-6 text-center">
             <Radio className="w-10 h-10 text-[#ffb703] animate-pulse mb-3" />

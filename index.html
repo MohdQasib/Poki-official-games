@@ -3,10 +3,33 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>My Google AI Studio App</title>
-    <!-- Mobile Debugging: Eruda console integration for diagnostics direct on mobile frames -->
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
+    <title>Poki Gaming Portal</title>
+
+    <!-- Ads Network Verification Codes -->
+    <meta name="monetag" content="e83c974fac27d04eb10f8a24955008fe">
+    <meta name="6a97888e-site-verification" content="8e656f843260a0e81df7092078b8c704">
+
+    <!-- Global flag to detect adblockers -->
+    <script>
+      window.monetagLoaded = {
+        push: false,
+        inPagePush: false,
+        vignette: false
+      };
+    </script>
+
+    <!-- Monetag Push Notifications -->
+    <script src="https://5gvci.com/act/files/tag.min.js?z=11064180" data-cfasync="false" async onload="window.monetagLoaded.push = true;"></script>
+
+    <!-- Monetag In-Page Push (Banner) -->
+    <script>
+      (function(s){
+        s.dataset.zone='11064182';
+        s.src='https://nap5k.com/tag.min.js';
+        s.async = true;
+        s.onload = function() { window.monetagLoaded.inPagePush = true; };
+      })([document.documentElement, document.body].filter(Boolean).pop().appendChild(document.createElement('script')))
+    </script>
   </head>
   <body>
     <div id="root"></div>

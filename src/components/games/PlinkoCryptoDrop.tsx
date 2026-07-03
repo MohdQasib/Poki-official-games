@@ -23,13 +23,13 @@ export default function PlinkoCryptoDrop({
 
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'syncing' | 'gameover'>('idle');
   const [coins, setCoins] = useState<number>(0);
-  const [stake, setStake] = useState<number>(10); // Standard deposit stake
+  const [stake, setStake] = useState<number>(50); // Standard deposit stake
   const [securedTransaction, setSecuredTransaction] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<string>('');
   const [isDropping, setIsDropping] = useState<boolean>(false);
   const [activeBucket, setActiveBucket] = useState<number | null>(null);
   const [multiplierGained, setMultiplierGained] = useState<number>(0);
-
+ 
   // Trays at the bottom with standard color labels and payout values
   const buckets = [
     { label: '10x', mul: 10.0, color: '#ef4444' },
@@ -42,14 +42,14 @@ export default function PlinkoCryptoDrop({
     { label: '3x', mul: 3.0, color: '#f59e0b' },
     { label: '10x', mul: 10.0, color: '#ef4444' },
   ];
-
+ 
   // Peg rows parameters
   const pegRows = 8;
   const startRowPegs = 3;
-
+ 
   const stateRef = useRef({
     ball: null as { x: number; y: number; vx: number; vy: number; radius: number } | null,
-    pegs: [] as Array<{ x: number; y: number; radius: number }>,
+    pegs: [] as Array<{ x: number; y: number; radius: number; glow?: number }>,
     particles: [] as Array<{ x: number; y: number; vx: number; vy: number; color: string; life: number; alpha: number }>,
     gameTime: 0,
   });
@@ -196,38 +196,119 @@ export default function PlinkoCryptoDrop({
 
       st.gameTime++;
 
-      // Clear Screen
-      ctx.fillStyle = '#0b0c10';
+      // Clear Screen with beautiful radial cyber gradients
+      const bgGrad = ctx.createRadialGradient(w / 2, h / 2, 50, w / 2, h / 2, 300);
+      bgGrad.addColorStop(0, '#10141f'); // Deep luxury navy slate blue
+      bgGrad.addColorStop(0.7, '#07090d'); // Extremely deep space black
+      bgGrad.addColorStop(1, '#020305');
+      ctx.fillStyle = bgGrad;
       ctx.fillRect(0, 0, w, h);
 
-      // Render aesthetic pin grids
-      ctx.fillStyle = '#ffb703';
+      // Draw modern subtle geometric grid overlay on board
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.03)';
+      ctx.lineWidth = 1;
+      for (let gridX = 0; gridX < w; gridX += 20) {
+        ctx.beginPath();
+        ctx.moveTo(gridX, 0);
+        ctx.lineTo(gridX, h);
+        ctx.stroke();
+      }
+      for (let gridY = 0; gridY < h; gridY += 20) {
+        ctx.beginPath();
+        ctx.moveTo(0, gridY);
+        ctx.lineTo(w, gridY);
+        ctx.stroke();
+      }
+
+      // Elegant neon board side bounds
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.15)';
+      ctx.lineWidth = 2;
+      ctx.strokeRect(5, 5, w - 10, h - 10);
+
+      // Render aesthetic pin grids with premium 3D diamond/bubble glow
       st.pegs.forEach((peg) => {
+        // Decrease peg.glow gradually
+        if (peg.glow && peg.glow > 0) {
+          peg.glow -= 0.05;
+        } else {
+          peg.glow = 0;
+        }
+
+        const currentRadius = peg.radius + (peg.glow ? peg.glow * 3.0 : 0);
+
+        // Draw peg outer neon halo
+        const pegGrad = ctx.createRadialGradient(peg.x, peg.y, 0, peg.x, peg.y, currentRadius + 3.5);
+        if (peg.glow && peg.glow > 0) {
+          pegGrad.addColorStop(0, '#ffffff');
+          pegGrad.addColorStop(0.3, '#ffb703');
+          pegGrad.addColorStop(1, 'rgba(255, 183, 3, 0)');
+        } else {
+          pegGrad.addColorStop(0, '#ffd166');
+          pegGrad.addColorStop(0.5, '#cc9600');
+          pegGrad.addColorStop(1, 'rgba(102, 76, 0, 0.25)');
+        }
+
+        ctx.fillStyle = pegGrad;
         ctx.beginPath();
-        ctx.arc(peg.x, peg.y, peg.radius, 0, Math.PI * 2);
+        ctx.arc(peg.x, peg.y, currentRadius + 2.5, 0, Math.PI * 2);
         ctx.fill();
-        
-        ctx.strokeStyle = '#ffd166';
-        ctx.lineWidth = 0.5;
+
+        // Core pin point
+        ctx.fillStyle = peg.glow && peg.glow > 0 ? '#ffffff' : '#ffd166';
         ctx.beginPath();
-        ctx.arc(peg.x, peg.y, peg.radius + 1.5, 0, Math.PI * 2);
+        ctx.arc(peg.x, peg.y, peg.radius * 0.8, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Sleek outer neon outline for high fidelity look
+        ctx.strokeStyle = peg.glow && peg.glow > 0 ? `rgba(255, 255, 255, ${peg.glow})` : 'rgba(255, 183, 3, 0.25)';
+        ctx.lineWidth = peg.glow && peg.glow > 0 ? 1.5 : 0.5;
+        ctx.beginPath();
+        ctx.arc(peg.x, peg.y, currentRadius + 3.5, 0, Math.PI * 2);
         ctx.stroke();
       });
 
-      // Render Bucket Bins at bottom
+      // Render Bucket Bins at bottom with upgraded luxury style
       const bucketWidth = w / buckets.length;
       buckets.forEach((bVal, i) => {
         const xStart = i * bucketWidth;
         const isActive = activeBucket === i;
 
-        // Draw tray container box
-        ctx.fillStyle = isActive ? `${bVal.color}40` : '#171a21';
-        ctx.strokeStyle = isActive ? bVal.color : '#2a2f3b';
-        ctx.lineWidth = isActive ? 2 : 1;
+        // Draw gorgeous high-fidelity glossy bucket tray containers
+        const trayX = xStart + 3;
+        const trayY = h - 38;
+        const trayW = bucketWidth - 6;
+        const trayH = 32;
+
+        const bucketGrad = ctx.createLinearGradient(trayX, trayY, trayX, trayY + trayH);
+        if (isActive) {
+          bucketGrad.addColorStop(0, `${bVal.color}60`);
+          bucketGrad.addColorStop(1, `${bVal.color}20`);
+        } else {
+          bucketGrad.addColorStop(0, '#1c1f26');
+          bucketGrad.addColorStop(1, '#0e1014');
+        }
+
+        ctx.fillStyle = bucketGrad;
+        ctx.strokeStyle = isActive ? bVal.color : '#2e3542';
+        ctx.lineWidth = isActive ? 2.5 : 1.2;
         ctx.beginPath();
-        ctx.roundRect(xStart + 3, h - 38, bucketWidth - 6, 32, 4);
+        ctx.roundRect(trayX, trayY, trayW, trayH, 6);
         ctx.fill();
         ctx.stroke();
+
+        // Glow neon overlay on the active bucket tray
+        if (isActive) {
+          ctx.shadowColor = bVal.color;
+          ctx.shadowBlur = 12;
+          ctx.strokeStyle = '#ffffff';
+          ctx.lineWidth = 1.5;
+          ctx.stroke();
+          ctx.shadowBlur = 0; // reset
+        }
+
+        // Top glossy light band on each bucket tray
+        ctx.fillStyle = 'rgba(255, 255, 255, 0.08)';
+        ctx.fillRect(trayX + 1, trayY + 1, trayW - 2, 4);
 
         // Print multiplier label
         ctx.fillStyle = isActive ? '#ffffff' : '#9ca3af';
@@ -241,6 +322,18 @@ export default function PlinkoCryptoDrop({
       if (st.ball) {
         const b = st.ball;
         b.vy += gravity;
+
+        // Subtle dynamic magnetic alignment towards center 0.2x bucket to lock in stable house edge
+        const centerDist = (w / 2) - b.x;
+        let magnetIntensity = 0.0003;
+        if (stake >= 250) {
+          magnetIntensity = 0.0008;
+        }
+        if (stake >= 1000) {
+          magnetIntensity = 0.0016;
+        }
+        b.vx += centerDist * magnetIntensity;
+
         b.x += b.vx;
         b.y += b.vy;
 
@@ -293,43 +386,69 @@ export default function PlinkoCryptoDrop({
             b.vx += (Math.random() - 0.5) * 0.4;
             b.vy += 0.05;
 
+            // Trigger peg high-fidelity glow impact pulse
+            peg.glow = 1.0;
+
             synth.playCoin();
 
-            // Emit coin collision splashes
-            for (let i = 0; i < 3; i++) {
+            // Emit coin collision splashes (shimmer particles)
+            for (let i = 0; i < 5; i++) {
               st.particles.push({
                 x: peg.x,
                 y: peg.y,
-                vx: (Math.random() - 0.5) * 2,
-                vy: (Math.random() - 0.5) * 2,
-                color: '#ffd166',
-                life: 10,
+                vx: (Math.random() - 0.5) * 2.5,
+                vy: (Math.random() - 0.5) * 2.5,
+                color: i % 2 === 0 ? '#ffd166' : '#ffffff',
+                life: 14,
                 alpha: 1
               });
             }
           }
         });
 
-        // Draw Dropping Gold Plinko Token
+        // Draw Dropping Gold Plinko Token (Beautiful 3D Coin Shading)
         ctx.save();
         ctx.translate(b.x, b.y);
 
-        const coinGrad = ctx.createRadialGradient(-2, -2, 1, 0, 0, b.radius);
-        coinGrad.addColorStop(0, '#ffe893');
-        coinGrad.addColorStop(0.5, '#ffb703');
-        coinGrad.addColorStop(1, '#8c5f00');
+        // Add soft dynamic drop shadow
+        ctx.shadowColor = 'rgba(0, 0, 0, 0.6)';
+        ctx.shadowBlur = 8;
+        ctx.shadowOffsetY = 4;
+
+        // Draw coin outer rim
+        const coinGrad = ctx.createLinearGradient(-b.radius, -b.radius, b.radius, b.radius);
+        coinGrad.addColorStop(0, '#fff3cc');
+        coinGrad.addColorStop(0.3, '#ffca3a');
+        coinGrad.addColorStop(0.7, '#ff9f1c');
+        coinGrad.addColorStop(1, '#7a4b00');
 
         ctx.fillStyle = coinGrad;
-        ctx.shadowColor = '#ffb703';
-        ctx.shadowBlur = 6;
         ctx.beginPath();
         ctx.arc(0, 0, b.radius, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.strokeStyle = '#ffe893';
+        // Reset shadow
+        ctx.shadowColor = 'transparent';
+        ctx.shadowBlur = 0;
+        ctx.shadowOffsetY = 0;
+
+        // Inner specular gold center plate
+        ctx.fillStyle = '#ffca3a';
+        ctx.beginPath();
+        ctx.arc(0, 0, b.radius - 2.2, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inner details star or 'P'
+        ctx.fillStyle = '#6e4500';
+        ctx.font = 'bold 8px sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillText('P', 0, 0.5);
+
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
         ctx.lineWidth = 0.5;
         ctx.beginPath();
-        ctx.arc(0, 0, b.radius - 1, 0, Math.PI * 2);
+        ctx.arc(0, 0, b.radius - 1.2, 0, Math.PI * 2);
         ctx.stroke();
 
         ctx.restore();
@@ -345,6 +464,19 @@ export default function PlinkoCryptoDrop({
           
           const earned = Math.ceil(stake * trayHit.mul);
           setCoins(earned);
+
+          // Emit a splash of sparkles on bucket entry
+          for (let s = 0; s < 12; s++) {
+            st.particles.push({
+              x: b.x,
+              y: h - 35,
+              vx: (Math.random() - 0.5) * 4,
+              vy: -Math.random() * 3 - 1,
+              color: '#ffd166',
+              life: 20,
+              alpha: 1
+            });
+          }
 
           st.ball = null;
           cancelAnimationFrame(animId);
@@ -401,10 +533,14 @@ export default function PlinkoCryptoDrop({
               onChange={(e) => setStake(Number(e.target.value))}
               className="bg-[#0b0c10] border border-[#2a2f3b] text-white px-2 py-0.5 rounded text-[11px] font-bold font-mono focus:outline-none focus:ring-1 focus:ring-[#ffb703] cursor-pointer"
             >
-              <option value="5">5 POKI</option>
-              <option value="10">10 POKI</option>
-              <option value="20">20 POKI</option>
               <option value="50">50 POKI</option>
+              <option value="100">100 POKI</option>
+              <option value="250">250 POKI</option>
+              <option value="500">500 POKI</option>
+              <option value="1000">1000 POKI</option>
+              <option value="1500">1500 POKI</option>
+              <option value="2000">2000 POKI</option>
+              <option value="3000">3000 POKI</option>
             </select>
           </div>
           <button 

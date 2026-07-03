@@ -60,8 +60,8 @@ export default function MemoryMatch({ onSessionComplete, uid, onClose }: MemoryM
   const syncScore = async (finalScore: number) => {
     console.log(`[MEMORY] syncScore with score: ${finalScore}`);
     
-    // Convert score to coins: e.g., 1 coin per 2 score points
-    const coins = Math.max(2, Math.floor(finalScore / 2));
+    // Convert score to coins: e.g., 1 coin per 2 score points, capped at 40 max
+    const coins = Math.min(40, Math.max(2, Math.floor(finalScore / 2)));
 
     onSessionComplete({
       distance: finalScore,
@@ -145,6 +145,29 @@ export default function MemoryMatch({ onSessionComplete, uid, onClose }: MemoryM
           const revertCards = [...newCards];
           revertCards[firstIdx].isFlipped = false;
           revertCards[secondIdx].isFlipped = false;
+
+          // Annoying natural difficulty modifier: Shuffle unmatched cards if turns is high
+          if (nextTurns >= 12) {
+            // Find unmatched, unflipped cards to swap their symbols
+            const candidateIndices: number[] = [];
+            revertCards.forEach((c, idx) => {
+              if (!c.isMatched && !c.isFlipped && idx !== firstIdx && idx !== secondIdx) {
+                candidateIndices.push(idx);
+              }
+            });
+            if (candidateIndices.length >= 2) {
+              const idxA = candidateIndices[Math.floor(Math.random() * candidateIndices.length)];
+              let idxB = candidateIndices[Math.floor(Math.random() * candidateIndices.length)];
+              while (idxA === idxB) {
+                idxB = candidateIndices[Math.floor(Math.random() * candidateIndices.length)];
+              }
+              // Swap symbolId values
+              const temp = revertCards[idxA].symbolId;
+              revertCards[idxA].symbolId = revertCards[idxB].symbolId;
+              revertCards[idxB].symbolId = temp;
+            }
+          }
+
           setCards(revertCards);
           setSelectedCards([]);
         }, 850);

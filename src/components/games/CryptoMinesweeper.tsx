@@ -18,7 +18,7 @@ export default function CryptoMinesweeper({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'syncing' | 'gameover'>('idle');
-  const [stake, setStake] = useState<number>(10);
+  const [stake, setStake] = useState<number>(50);
   const [coins, setCoins] = useState<number>(0);
   const [securedTransaction, setSecuredTransaction] = useState<any>(null);
   const [syncStatus, setSyncStatus] = useState<string>('');
@@ -194,10 +194,13 @@ export default function CryptoMinesweeper({
               onChange={(e) => setStake(Number(e.target.value))}
               className="bg-[#0b0c10] border border-[#2a2f3b] text-white px-2 py-0.5 rounded text-[11px] font-bold font-mono focus:outline-none focus:ring-1 focus:ring-[#ffb703] cursor-pointer"
             >
-              <option value="5">5 POKI</option>
-              <option value="10">10 POKI</option>
-              <option value="25">25 POKI</option>
               <option value="50">50 POKI</option>
+              <option value="100">100 POKI</option>
+              <option value="250">250 POKI</option>
+              <option value="500">500 POKI</option>
+              <option value="1000">1000 POKI</option>
+              <option value="2000">2000 POKI</option>
+              <option value="3000">3000 POKI</option>
             </select>
           </div>
           <button 
@@ -249,7 +252,7 @@ export default function CryptoMinesweeper({
         </div>
 
         {/* 5x5 MINING GRID TARGET CARD */}
-        <div className="flex-1 max-w-[320px] aspect-square grid grid-cols-5 grid-rows-5 gap-1.5 p-2 bg-black/60 rounded-xl border border-[#2a2f3b]">
+        <div className="flex-1 max-w-[320px] aspect-square grid grid-cols-5 grid-rows-5 gap-[3px] p-2 bg-black/60 rounded-xl border border-[#2a2f3b]">
           {gameState === 'idle' ? (
             <div className="col-span-5 row-span-5 flex flex-col items-center justify-center p-4 text-center">
               <Coins className="w-10 h-10 text-amber-500 animate-pulse mb-2" />

@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { TrendingUp, Sparkles, RefreshCw, X, Play, ShieldAlert, Award } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -22,7 +23,7 @@ export default function PokiCrash({
   const isStartingRef = useRef<boolean>(false);
 
   const [gameState, setGameState] = useState<'idle' | 'running' | 'crashed' | 'cashed_out'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [multiplier, setMultiplier] = useState<number>(1.0);
   const [bustPoint, setBustPoint] = useState<number>(1.0);
   const [cashoutGain, setCashoutGain] = useState<number>(0);
@@ -137,14 +138,40 @@ export default function PokiCrash({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance for this stake.');
       isStartingRef.current = false;
       return;
     }
 
     // Start
-    const currentBust = generateBustPoint();
+    let currentBust = generateBustPoint();
+
+    if (evaluation.shouldForceLoss) {
+      // Crash instantly or very early (between 1.00x and 1.15x) to guarantee a loss
+      currentBust = parseFloat((1.0 + Math.random() * 0.15).toFixed(2));
+    } else {
+      // Slower or better odds under honeymoon phase / brake mode
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+      if (isHoneymoon && parsedBet < 150) {
+        // Boosted crash points
+        currentBust = parseFloat((2.5 + Math.random() * 8.0).toFixed(2));
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        // Give comfortable but realistic safety wins (1.5x - 2.5x)
+        currentBust = parseFloat((1.6 + Math.random() * 1.2).toFixed(2));
+      }
+    }
+
     setBustPoint(currentBust);
     setMultiplier(1.0);
     setGameState('running');
@@ -165,6 +192,7 @@ export default function PokiCrash({
         setGameState('crashed');
         stopSound();
         synth.playCrash();
+        logLoss(uId, parsedBet, 'Poki Crash', pokiBalance);
         syncCasinoData('Poki Crash', -parsedBet, parseFloat((pokiBalance - parsedBet).toFixed(8)));
       } else {
         setMultiplier(calculatedVal);
@@ -194,6 +222,8 @@ export default function PokiCrash({
     synth.playLevelUp();
 
     onAwardBalance(finalWinning);
+    const uId = window.currentUserId || 'anonymous';
+    logWin(uId, betAmount, finalWinning, 'Poki Crash', pokiBalance);
     syncCasinoData('Poki Crash', profit, parseFloat((pokiBalance + profit).toFixed(8)));
   };
 

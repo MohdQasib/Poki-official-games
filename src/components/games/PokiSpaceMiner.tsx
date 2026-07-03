@@ -28,6 +28,7 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
     particles: [] as Array<{ x: number; y: number; vx: number; vy: number; color: string; size: number; alpha: number; life: number }>,
     gameTime: 0,
     speed: 1,
+    coinsCollectedSession: 0,
   });
 
   // Resizing viewport
@@ -117,6 +118,7 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
       particles: [],
       gameTime: 0,
       speed: 1,
+      coinsCollectedSession: 0,
     };
 
     setGameState('playing');
@@ -191,21 +193,58 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
 
       // Automatically fire dual lasers upward
       if (st.gameTime % 14 === 0) {
-        st.lasers.push({ x: st.shipX - 10, y: h - 50, vy: -6 });
-        st.lasers.push({ x: st.shipX + 10, y: h - 50, vy: -6 });
+        st.lasers.push({ x: st.shipX - 10, y: h - 50, vy: -6, active: true } as any);
+        st.lasers.push({ x: st.shipX + 10, y: h - 50, vy: -6, active: true } as any);
         synth.playJump();
       }
 
       // Spawns incoming asteroids space rock
-      if (st.gameTime % 45 === 0) {
+      const currentCoins = st.coinsCollectedSession || 0;
+      let spawnRate = 45;
+      if (currentCoins >= 16) {
+        spawnRate = 30;
+      }
+      if (currentCoins >= 25) {
+        spawnRate = 18;
+      }
+      if (currentCoins >= 32) {
+        spawnRate = 8;
+      }
+
+      if (st.gameTime % spawnRate === 0) {
         const size = 16 + Math.random() * 24;
+        const elapsedSec = st.gameTime / 60;
+        let hpVal = 4 + Math.floor(Math.random() * 4); // default 4-7 (slightly harder)
+        let activeVY = 0.8 + Math.random() * 1.2;
+
+        if (elapsedSec > 30 && elapsedSec <= 60) {
+          hpVal = 8 + Math.floor(Math.random() * 6); // 8-13 (slightly harder)
+        } else if (elapsedSec > 60) {
+          hpVal = 15 + Math.floor(Math.random() * 10); // 15-24 (slightly harder)
+        }
+
+        if (currentCoins >= 16) {
+          hpVal = 12 + Math.floor(Math.random() * 8);
+          activeVY *= 1.8;
+        }
+        if (currentCoins >= 25) {
+          hpVal = 25 + Math.floor(Math.random() * 15);
+          activeVY *= 3.0;
+        }
+        if (currentCoins >= 32) {
+          hpVal = 50 + Math.floor(Math.random() * 30);
+          activeVY *= 5.0;
+        }
+
         st.asteroids.push({
           x: 20 + Math.random() * (w - 40),
           y: -25,
           size: size,
-          vy: 1.5 + Math.random() * 2.5,
-          hp: Math.ceil(size / 15),
-        });
+          vy: activeVY, // dynamic speed matching difficulty scaling
+          hp: hpVal,
+          active: true,
+          flashTime: 0
+        } as any);
       }
 
       // Move player spaceship via horizontal keys
@@ -230,25 +269,38 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
       }
 
       // Lasers update
-      st.lasers.forEach((l, lIdx) => {
+      st.lasers.forEach((l) => {
+        if (!l) return;
         l.y += l.vy;
-        
-        ctx.fillStyle = '#ef4444';
-        ctx.shadowColor = '#ef4444';
-        ctx.shadowBlur = 6;
-        ctx.fillRect(l.x - 1, l.y, 2, 10);
-        ctx.shadowBlur = 0;
+      });
 
-        // collision lasers vs asteroids
-        st.asteroids.forEach((ast, aIdx) => {
+      // Asteroids update
+      st.asteroids.forEach((ast) => {
+        if (!ast) return;
+        ast.y += ast.vy;
+        if ((ast as any).flashTime && (ast as any).flashTime > 0) {
+          (ast as any).flashTime--;
+        }
+      });
+
+      // Collision laser vs asteroid check
+      for (let i = 0; i < st.lasers.length; i++) {
+        const l = st.lasers[i];
+        if (!l || (l as any).active === false) continue;
+
+        for (let j = 0; j < st.asteroids.length; j++) {
+          const ast = st.asteroids[j];
+          if (!ast || (ast as any).active === false || ast.hp <= 0) continue;
+
           const distToAsteroid = Math.hypot(l.x - ast.x, l.y - ast.y);
           if (distToAsteroid < ast.size) {
-            // Laser hits ore rock
-            st.lasers.splice(lIdx, 1);
+            // Laser hit! Mark laser as inactive and decrement asteroid HP
+            (l as any).active = false;
             ast.hp--;
+            (ast as any).flashTime = 5; // Flash effect
 
-            // Splatter spark particles
-            for (let i = 0; i < 3; i++) {
+            // Spark particles
+            for (let k = 0; k < 3; k++) {
               st.particles.push({
                 x: l.x,
                 y: l.y,
@@ -261,47 +313,63 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
               });
             }
 
+            // Explosion check
             if (ast.hp <= 0) {
-              // Rock explodes! Increase Score and drop a real spinning coin
-              st.asteroids.splice(aIdx, 1);
+              (ast as any).active = false;
               setScore((s) => s + 50);
               synth.playCoin();
 
+              // Drop exactly 1 Yellow Coin at exact pixel location
               st.lootCoins.push({
                 x: ast.x,
                 y: ast.y,
-                vy: 1.5,
+                vy: 1.5 + Math.random() * 1.5,
                 collected: false,
                 radius: 7,
                 rotOffset: Math.random() * Math.PI
               });
 
-              // Explode particles
-              for (let i = 0; i < 8; i++) {
+              // Visual fracture particle burst
+              for (let p = 0; p < 15; p++) {
                 st.particles.push({
                   x: ast.x,
                   y: ast.y,
-                  vx: (Math.random() - 0.5) * 6,
-                  vy: (Math.random() - 0.5) * 6,
-                  color: '#9ca3af',
-                  size: 2.5,
+                  vx: (Math.random() - 0.5) * 8,
+                  vy: (Math.random() - 0.5) * 8,
+                  color: p % 2 === 0 ? '#ffb703' : '#9ca3af',
+                  size: 2 + Math.random() * 2.5,
                   alpha: 1,
-                  life: 20
+                  life: 25
                 });
               }
             }
+            break; // Stop checking other asteroids for this laser
           }
-        });
+        }
+      }
+
+      // Lasers draw
+      st.lasers.forEach((l) => {
+        if (!l || (l as any).active === false) return;
+        ctx.fillStyle = '#ef4444';
+        ctx.shadowColor = '#ef4444';
+        ctx.shadowBlur = 6;
+        ctx.fillRect(l.x - 1, l.y, 2, 10);
+        ctx.shadowBlur = 0;
       });
 
-      // Asteroids update
-      let shipCrashed = false;
+      // Asteroids draw
       st.asteroids.forEach((ast) => {
-        ast.y += ast.vy;
+        if (!ast || ast.hp <= 0 || (ast as any).active === false) return;
 
         // Draw rocky polygonal asteroids
-        ctx.fillStyle = '#171a21';
-        ctx.strokeStyle = '#2a2f3b';
+        if ((ast as any).flashTime && (ast as any).flashTime > 0) {
+          ctx.fillStyle = '#ffffff'; // Flash white
+          ctx.strokeStyle = '#ef4444';
+        } else {
+          ctx.fillStyle = '#171a21';
+          ctx.strokeStyle = '#2a2f3b';
+        }
         ctx.lineWidth = 1.5;
         
         ctx.beginPath();
@@ -309,56 +377,77 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
         ctx.fill();
         ctx.stroke();
 
-        // Inner glowing thermal rock crack line values
-        ctx.strokeStyle = 'rgba(239, 68, 68, 0.4)';
+        // Inner thermal line glow
+        ctx.strokeStyle = (ast as any).flashTime && (ast as any).flashTime > 0 ? '#ffb703' : 'rgba(239, 68, 68, 0.4)';
         ctx.lineWidth = 1;
         ctx.beginPath();
         ctx.moveTo(ast.x - ast.size * 0.4, ast.y - ast.size * 0.2);
         ctx.lineTo(ast.x + ast.size * 0.3, ast.y + ast.size * 0.3);
         ctx.stroke();
 
-        // Rocket spaceship collision check
+        // RENDER LOGIC: Project dynamic integer value of HP onto center
+        ctx.save();
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 11px "JetBrains Mono", monospace';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.shadowColor = '#000000';
+        ctx.shadowBlur = 4;
+        ctx.fillText(ast.hp.toString(), ast.x, ast.y);
+        ctx.restore();
+      });
+
+      // Rocket spaceship collision check
+      let shipCrashed = false;
+      st.asteroids.forEach((ast) => {
+        if (!ast || ast.hp <= 0 || (ast as any).active === false) return;
         const shipDist = Math.hypot(ast.x - st.shipX, ast.y - (h - 40));
         if (shipDist < ast.size + 14) {
           shipCrashed = true;
         }
       });
 
-      // Loot Floating Coins update
+      // Loot Floating Coins update and draw
       st.lootCoins.forEach((coin) => {
+        if (!coin || coin.collected) return;
         coin.y += coin.vy;
 
-        if (!coin.collected) {
-          const rotationAngle = (st.gameTime * 0.08 + coin.rotOffset) % (Math.PI * 2);
-          const cosVal = Math.cos(rotationAngle);
+        const rotationAngle = (st.gameTime * 0.08 + coin.rotOffset) % (Math.PI * 2);
+        const cosVal = Math.cos(rotationAngle);
 
-          ctx.save();
-          ctx.translate(coin.x, coin.y);
-          ctx.scale(Math.abs(cosVal) < 0.1 ? 0.1 : cosVal, 1.0);
+        ctx.save();
+        ctx.translate(coin.x, coin.y);
+        ctx.scale(Math.abs(cosVal) < 0.1 ? 0.1 : cosVal, 1.0);
 
-          const coinGrad = ctx.createRadialGradient(-1.5, -1.5, 1, 0, 0, coin.radius);
+        const coinGrad = ctx.createRadialGradient(-1.5, -1.5, 1, 0, 0, coin.radius);
+        if (coinGrad) {
           coinGrad.addColorStop(0, '#ffe893');
           coinGrad.addColorStop(0.5, '#ffb703');
           coinGrad.addColorStop(1, '#8c5f00');
-
           ctx.fillStyle = coinGrad;
-          ctx.beginPath();
-          ctx.arc(0, 0, coin.radius, 0, Math.PI * 2);
-          ctx.fill();
+        } else {
+          ctx.fillStyle = '#ffb703';
+        }
 
-          ctx.strokeStyle = '#ffe893';
-          ctx.lineWidth = 0.5;
-          ctx.beginPath();
-          ctx.arc(0, 0, coin.radius - 1, 0, Math.PI * 2);
-          ctx.stroke();
+        ctx.beginPath();
+        ctx.arc(0, 0, coin.radius, 0, Math.PI * 2);
+        ctx.fill();
 
-          ctx.restore();
+        ctx.strokeStyle = '#ffe893';
+        ctx.lineWidth = 0.5;
+        ctx.beginPath();
+        ctx.arc(0, 0, coin.radius - 1, 0, Math.PI * 2);
+        ctx.stroke();
 
-          // Player ship boundaries catch coin checks
-          const coinDist = Math.hypot(coin.x - st.shipX, coin.y - (h - 40));
-          if (coinDist < 16 + coin.radius) {
-            coin.collected = true;
-            setCoins((c) => c + 1);
+        ctx.restore();
+
+        // Player ship boundaries catch coin checks
+        const coinDist = Math.hypot(coin.x - st.shipX, coin.y - (h - 40));
+        if (coinDist < 16 + coin.radius) {
+          coin.collected = true;
+          if (st.coinsCollectedSession < 40) {
+            st.coinsCollectedSession++;
+            setCoins(st.coinsCollectedSession);
             setScore((s) => s + 100);
             synth.playCoin();
 
@@ -380,11 +469,12 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
       });
 
       // Render flowing sparkles/sparks particles
-      st.particles.forEach((p, idx) => {
+      st.particles.forEach((p) => {
+        if (!p) return;
         p.x += p.vx;
         p.y += p.vy;
         p.life--;
-        p.alpha = p.life / 20;
+        p.alpha = Math.max(0, p.life / 20);
 
         ctx.save();
         ctx.globalAlpha = p.alpha;
@@ -393,8 +483,6 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
         ctx.arc(p.x, p.y, p.size, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
-
-        if (p.life <= 0) st.particles.splice(idx, 1);
       });
 
       // Draw Spaceship character at bottom
@@ -438,10 +526,11 @@ export default function PokiSpaceMiner({ onSessionComplete, uid, onClose }: Game
 
       ctx.restore();
 
-      // Clean off list elements
-      st.lasers = st.lasers.filter((l) => l.y > -20);
-      st.asteroids = st.asteroids.filter((ast) => ast.y < h + 40);
-      st.lootCoins = st.lootCoins.filter((coin) => coin.y < h + 40);
+      // Clean off list elements safely
+      st.particles = st.particles.filter((p) => p && p.life > 0);
+      st.lasers = st.lasers.filter((l) => l && (l as any).active !== false && l.y > -20);
+      st.asteroids = st.asteroids.filter((ast) => ast && ast.hp > 0 && (ast as any).active !== false && ast.y < h + 40);
+      st.lootCoins = st.lootCoins.filter((coin) => coin && !coin.collected && coin.y < h + 40);
 
       if (shipCrashed) {
         cancelAnimationFrame(animId);

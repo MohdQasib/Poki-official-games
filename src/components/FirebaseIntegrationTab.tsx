@@ -79,7 +79,7 @@ export async function creditPokicoins(uid: string, quantity: number, mScore: num
 }`;
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-6" style={{ display: 'none' }}>
       {/* Visual Header card */}
       <div className="bg-[#151821] border border-[#2a2f3b] rounded-lg p-5 text-left relative overflow-hidden">
         <div className="absolute top-0 right-0 w-32 h-32 bg-[#ffb703]/5 rounded-full blur-2xl" />

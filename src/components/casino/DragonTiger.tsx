@@ -5,7 +5,7 @@ import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, Zap } from 'luci
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -60,7 +60,7 @@ export default function DragonTiger({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'drawing' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [selectedBet, setSelectedBet] = useState<BetChoice>('dragon');
 
   const [dragonCard, setDragonCard] = useState<Card | null>(null);
@@ -91,7 +91,12 @@ export default function DragonTiger({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }

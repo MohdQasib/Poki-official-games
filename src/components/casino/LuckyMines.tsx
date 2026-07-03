@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, Bomb, Coins } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -24,7 +25,7 @@ export default function LuckyMines({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'cashout' | 'bust'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [mineCount, setMineCount] = useState<number>(3);
   
   const [grid, setGrid] = useState<Cell[]>([]);
@@ -63,7 +64,19 @@ export default function LuckyMines({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }
@@ -98,8 +111,35 @@ export default function LuckyMines({
     const target = grid[id];
     if (target.state !== 'hidden') return;
 
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, activeGameBetRef.current, pokiBalance);
+
+    let forceLoss = evaluation.shouldForceLoss;
+
+    // High bet defense (if bet >= 300 PKG, guarantee bomb on 2nd click)
+    if (activeGameBetRef.current >= 300 && revealedCount >= 1) {
+      forceLoss = true;
+    }
+
+    // Brake mode: slow win but cap maximum streak count to 4 safe clicks
+    if (evaluation.applyBrakeMode && revealedCount >= 3) {
+      forceLoss = true;
+    }
+
     const newGrid = [...grid];
-    if (target.isMine) {
+
+    if (forceLoss && !target.isMine) {
+      // Dynamic Mine Swap: Swaps a mine from somewhere else in the grid to this clicked cell
+      const mineIndex = newGrid.findIndex(cell => cell.isMine && cell.id !== id && cell.state === 'hidden');
+      if (mineIndex !== -1) {
+        newGrid[id].isMine = true;
+        newGrid[mineIndex].isMine = false;
+      } else {
+        newGrid[id].isMine = true; // Fallback
+      }
+    }
+
+    if (newGrid[id].isMine) {
       // Exploded! Reveal all mines and bust
       newGrid[id].state = 'bomb';
       // Reveal other mines
@@ -111,7 +151,8 @@ export default function LuckyMines({
       synth.playCrash();
 
       const netLoss = -activeGameBetRef.current;
-      syncCasinoData('Lucky Mines', netLoss, pokiBalance)
+      logLoss(uId, activeGameBetRef.current, 'Lucky Mines', pokiBalance);
+      syncCasinoData('Lucky Mines', netLoss, parseFloat((pokiBalance - activeGameBetRef.current).toFixed(8)))
         .catch(err => console.error(err));
     } else {
       // Golden Gem found!
@@ -134,7 +175,8 @@ export default function LuckyMines({
         synth.playCoin();
         
         const netProfit = payout - activeGameBetRef.current;
-        syncCasinoData('Lucky Mines', netProfit, pokiBalance + netProfit)
+        logWin(uId, activeGameBetRef.current, payout, 'Lucky Mines', pokiBalance);
+        syncCasinoData('Lucky Mines', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)))
           .catch(err => console.error(err));
       }
     }
@@ -158,7 +200,9 @@ export default function LuckyMines({
     setGrid(newGrid as any);
 
     const netProfit = payout - activeGameBetRef.current;
-    syncCasinoData('Lucky Mines', netProfit, pokiBalance + netProfit)
+    const uId = window.currentUserId || 'anonymous';
+    logWin(uId, activeGameBetRef.current, payout, 'Lucky Mines', pokiBalance);
+    syncCasinoData('Lucky Mines', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)))
       .catch(err => console.error(err));
   };
 

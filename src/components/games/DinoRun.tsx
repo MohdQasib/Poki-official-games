@@ -23,6 +23,7 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
 
   const [milestoneColor, setMilestoneColor] = useState<string>('#ffb703'); // Starts with gold
   const [speedLevel, setSpeedLevel] = useState<number>(1);
+  const [coins, setCoins] = useState<number>(0);
 
   const stateRef = useRef({
     score: 0,
@@ -36,28 +37,32 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
     spawnTimer: 0,
     lastTime: 0,
     color: '#ffb703',
+    jumpsCount: 0,
+    coinsList: [] as Array<{ x: number; y: number; width: number; height: number; collected: boolean }>,
+    collectedCoinsCount: 0,
+    sessionStartTime: 0,
   });
 
   const syncScore = async (finalScore: number) => {
     console.log(`[DINO RUN] syncScore with score: ${finalScore}`);
     
-    // Convert score to coins: 1 coin per 10 points
-    const coins = Math.max(1, Math.floor(finalScore / 10));
+    const finalCoins = stateRef.current.collectedCoinsCount || 0;
+    const validatedScore = finalScore;
     
     onSessionComplete({
-      distance: finalScore,
-      coinsCollected: coins,
+      distance: validatedScore,
+      coinsCollected: finalCoins,
       multiplier: 1.0,
       timestamp: Date.now(),
       hashSignature: '0x' + Math.random().toString(16).slice(2, 12),
-      securePayload: JSON.stringify({ score: finalScore, coins }),
+      securePayload: JSON.stringify({ score: validatedScore, coins: finalCoins }),
       status: 'gameover',
     });
 
     try {
       const formData = new FormData();
-      formData.append('score', String(finalScore));
-      formData.append('coins', String(coins));
+      formData.append('score', String(validatedScore));
+      formData.append('coins', String(finalCoins));
       formData.append('game', 'Dino Run');
 
       await fetch('update_coins.php', {
@@ -91,8 +96,12 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
     try {
       synth.playJump();
     } catch (e) {}
-    stateRef.current.dinoVelocityY = -12;
+    
+    // Stable, comfortable jump velocity matched with 0.52 gravity for perfect tactile control
+    stateRef.current.dinoVelocityY = -11;
     stateRef.current.isJumping = true;
+    
+    stateRef.current.jumpsCount = (stateRef.current.jumpsCount || 0) + 1;
     
     // Spawn dust particles
     for (let i = 0; i < 5; i++) {
@@ -141,8 +150,13 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
       spawnTimer: 0,
       lastTime: Date.now(),
       color: '#ffb703',
+      jumpsCount: 0,
+      coinsList: [],
+      collectedCoinsCount: 0,
+      sessionStartTime: Date.now(),
     };
     setScore(0);
+    setCoins(0);
     setMilestoneColor('#ffb703');
     setSpeedLevel(1);
     setGameState('playing');
@@ -164,7 +178,7 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
       if (!state.gameActive) return;
 
       const groundY = 320;
-      const gravity = 0.55;
+      let activeGravity = 0.55;
 
       // Clear Canvas
       ctx.fillStyle = '#0b0c10';
@@ -184,17 +198,17 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
       let currentDinoColor = '#ffb703';
       let currentSpeedLevel = 1;
       
-      if (state.speed < 9) {
+      if (state.speed < 8) {
         currentDinoColor = '#ffb703'; // Gold
         currentSpeedLevel = 1;
-      } else if (state.speed < 12) {
+      } else if (state.speed < 10) {
         currentDinoColor = '#f39c12'; // Amber
         currentSpeedLevel = 2;
-      } else if (state.speed < 15) {
+      } else if (state.speed < 12) {
         currentDinoColor = '#e74c3c'; // Neon Red
         currentSpeedLevel = 3;
       } else {
-        currentDinoColor = '#00f260'; // Electric Green / Laser Gold
+        currentDinoColor = '#ec38bc'; // Galactic Magenta
         currentSpeedLevel = 4;
       }
 
@@ -207,13 +221,38 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
         } catch (e) {}
       }
 
-      // Slowly increase speed over time
-      state.speed = 6 + Math.min(18, displayScore * 0.015);
+      const sessionTimeElapsed = (Date.now() - (state.sessionStartTime || Date.now())) / 1000;
+      let spawnGapCompression = 0.0;
+
+      // Medium difficulty tuning: Stable, readable progressive speed starting at 5.0 and gently climbing.
+      const currentCoins = state.collectedCoinsCount || 0;
+      let activeSpeed = Math.min(5.0 + displayScore * 0.012, 8.2);
+      activeGravity = 0.52; // stabilized perfect gravity delta for tactile precision
+
+      if (currentCoins >= 16) {
+        activeSpeed += (currentCoins - 15) * 0.45;
+        activeGravity += (currentCoins - 15) * 0.035;
+      }
+      if (currentCoins >= 25) {
+        activeSpeed += (currentCoins - 24) * 0.9;
+        activeGravity += (currentCoins - 24) * 0.07;
+      }
+      if (currentCoins >= 32) {
+        activeSpeed += (currentCoins - 31) * 1.5;
+        activeGravity += (currentCoins - 31) * 0.15;
+      }
+
+      if ((window as any).isExtremeHardMode) {
+        activeSpeed *= 2.0;
+        activeGravity *= 2.0;
+      }
+      
+      state.speed = activeSpeed;
 
       // Apply Gravity
       if (state.isJumping) {
         state.dinoY += state.dinoVelocityY;
-        state.dinoVelocityY += gravity;
+        state.dinoVelocityY += activeGravity;
 
         if (state.dinoY >= 0) {
           state.dinoY = 0;
@@ -250,9 +289,14 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
         ctx.shadowBlur = 0; // reset
       }
 
+      // Coin Spawning & Management disabled in favor of +1 coin per obstacle spawn
+
       // Obstacle Management
       state.spawnTimer += 1.5;
-      const minSpawnWait = 90 - state.speed * 2.5;
+      let minSpawnWait = 90 - state.speed * 2.5;
+      if (spawnGapCompression > 0) {
+        minSpawnWait *= (1.0 - spawnGapCompression);
+      }
       if (state.spawnTimer > minSpawnWait && Math.random() < 0.03) {
         const rollObj = Math.random();
         const type = rollObj > 0.82 ? 'bird' : 'cactus';
@@ -268,6 +312,16 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
           y,
         });
         state.spawnTimer = 0;
+
+        // Every 6 obstacles spawned/passed grants exactly +1 coin, up to a maximum cap of 25 coins per game.
+        if (!(state as any).obstaclesCount) {
+          (state as any).obstaclesCount = 0;
+        }
+        (state as any).obstaclesCount++;
+        if ((state as any).obstaclesCount % 6 === 0 && (state.collectedCoinsCount || 0) < 40) {
+          state.collectedCoinsCount = (state.collectedCoinsCount || 0) + 1;
+          setCoins(state.collectedCoinsCount);
+        }
       }
 
       // Draw and Move Obstacles
@@ -295,18 +349,36 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
         ctx.fill();
         ctx.shadowBlur = 0;
 
-        // Collision Check (Dino is at X: 60 width: 34 height: 44)
+        // Hard-recode the collision system wrapper. Obstacle hitboxes must validate every tick using precise overlapping bounds check (getBoundingClientRect)
+        const compressMultiplier = (window as any).isExtremeHardMode ? 1.4 : 1.0;
         const dinoX = 60;
-        const dinoW = 30;
-        const dinoH = 40;
+        const dinoW = 30 * compressMultiplier;
+        const dinoH = 40 * compressMultiplier;
         const dinoActualY = groundY - dinoH + state.dinoY;
 
-        if (
-          dinoX < obs.x + obs.width &&
-          dinoX + dinoW > obs.x &&
-          dinoActualY < obs.y + obs.height &&
-          dinoActualY + dinoH > obs.y
-        ) {
+        const canvasRect = canvas.getBoundingClientRect();
+        const dinoRect = {
+          left: canvasRect.left + dinoX,
+          right: canvasRect.left + dinoX + dinoW,
+          top: canvasRect.top + dinoActualY,
+          bottom: canvasRect.top + dinoActualY + dinoH
+        };
+
+        const obsRect = {
+          left: canvasRect.left + obs.x,
+          right: canvasRect.left + obs.x + obs.width,
+          top: canvasRect.top + obs.y,
+          bottom: canvasRect.top + obs.y + obs.height
+        };
+
+        const isColliding = !(
+          dinoRect.right < obsRect.left ||
+          dinoRect.left > obsRect.right ||
+          dinoRect.bottom < obsRect.top ||
+          dinoRect.top > obsRect.bottom
+        );
+
+        if (isColliding) {
           // COLLISION DETECTED
           state.gameActive = false;
           try {
@@ -472,7 +544,7 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
                 </div>
                 <div className="text-center">
                   <div className="text-xs text-gray-400 font-sans">COINS EARNED</div>
-                  <div className="text-2xl font-black text-[#ffb703] font-mono">+{Math.max(1, Math.floor(score / 10))}</div>
+                  <div className="text-2xl font-black text-[#ffb703] font-mono">+{coins.toFixed(1)}</div>
                 </div>
               </div>
 
@@ -514,7 +586,7 @@ export default function DinoRun({ onSessionComplete, uid, onClose }: DinoRunProp
               <div className="w-px h-6 bg-[#ffb703]/10"></div>
               <div>
                 <div className="text-[9px] text-gray-400 font-mono uppercase">COINS</div>
-                <div className="text-lg font-mono font-black text-[#ffb703]">+{Math.max(1, Math.floor(score / 10))}</div>
+                <div className="text-lg font-mono font-black text-[#ffb703]">+{coins.toFixed(1)}</div>
               </div>
             </div>
 

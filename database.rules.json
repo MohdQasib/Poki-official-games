@@ -1,0 +1,45 @@
+{
+  "rules": {
+    "gaming_portal": {
+      // Direct access to the list of all gaming profiles is blocked to prevent enumeration and scraping attacks.
+      ".read": false,
+      ".write": false,
+      
+      "$uid": {
+        // Enforce strict user verification:
+        // 1. User must be fully authenticated with Firebase Auth.
+        // 2. The authenticated User ID must perfectly match the database node path.
+        // 3. User UIDs matching guest patterns (like 'poki_guest_') are blocked from writing.
+        ".read": "auth != null && auth.uid === $uid",
+        ".write": "auth != null && auth.uid === $uid && !$uid.beginsWith('poki_guest_')",
+        
+        // Ensure that only valid schema properties are updated and restrict types:
+        "pokiGamingGold": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        "pokiGoldWinning": {
+          ".validate": "newData.isNumber() && newData.val() >= 0"
+        },
+        
+        // Prevent injecting any other unauthorized metadata fields or keys
+        "$other": {
+          ".validate": false
+        }
+      }
+    },
+    
+    "reward_settings": {
+      // Publicly readable so that clients can fetch payout parameters (like ad config)
+      ".read": true,
+      // Only administrators can edit gaming rewards and ad multipliers
+      ".write": "auth != null && auth.token.admin === true"
+    },
+    
+    "system": {
+      // Configuration parameters are readable by authenticated users
+      ".read": "auth != null",
+      // Restrict system parameters write access to authorized system components
+      ".write": "auth != null && auth.token.admin === true"
+    }
+  }
+}

@@ -32,6 +32,7 @@ export default function PokiBallisticKnife({ onSessionComplete, uid, onClose }: 
     particles: [] as Array<{ x: number; y: number; vx: number; vy: number; color: string; size: number; alpha: number; life: number }>,
     gameTime: 0,
     stageLevel: 1,
+    coinsCollected: 0,
   });
 
   // Resizing
@@ -92,6 +93,7 @@ export default function PokiBallisticKnife({ onSessionComplete, uid, onClose }: 
       particles: [],
       gameTime: 0,
       stageLevel: 1,
+      coinsCollected: 0,
     };
 
     setGameState('playing');
@@ -169,9 +171,30 @@ export default function PokiBallisticKnife({ onSessionComplete, uid, onClose }: 
       st.gameTime++;
       st.speedFluctuateTimer++;
 
+      const currentCoins = st.coinsCollected || 0;
+      let changeInterval = 110;
+      let speedMultiplier = 1.0;
+      let overlapThreshold = 0.16;
+
+      if (currentCoins >= 16) {
+        changeInterval = 45;
+        speedMultiplier = 2.0;
+        overlapThreshold = 0.22;
+      }
+      if (currentCoins >= 25) {
+        changeInterval = 20;
+        speedMultiplier = 3.5;
+        overlapThreshold = 0.28;
+      }
+      if (currentCoins >= 32) {
+        changeInterval = 8;
+        speedMultiplier = 6.0;
+        overlapThreshold = 0.40; // huge overlap hitbox, virtually impossible to fit any knife!
+      }
+
       // Speed fluctuation logic to simulate real fluctuating coin wheel speed
-      if (st.speedFluctuateTimer % 110 === 0) {
-        st.wheelSpeed = (0.02 + Math.random() * 0.045) * (Math.random() > 0.45 ? 1 : -1);
+      if (st.speedFluctuateTimer % changeInterval === 0) {
+        st.wheelSpeed = (0.02 + Math.random() * 0.045) * (Math.random() > 0.45 ? 1 : -1) * speedMultiplier;
       }
       st.wheelAngle += st.wheelSpeed;
 
@@ -190,7 +213,6 @@ export default function PokiBallisticKnife({ onSessionComplete, uid, onClose }: 
           const targetAngle = (Math.PI / 2) - st.wheelAngle;
 
           // Check if it overlaps with any already embedded knives
-          const overlapThreshold = 0.16; // Approx 9 degrees
           let hitExisting = false;
           st.embeddedKnives.forEach((oldKf) => {
             // Normalize angles between [-PI, PI] for precision comparison
@@ -217,7 +239,8 @@ export default function PokiBallisticKnife({ onSessionComplete, uid, onClose }: 
               if (Math.abs(diff) < 0.22) {
                 // Coin Hit!
                 coin.collected = true;
-                setCoins((c) => c + 1);
+                st.coinsCollected = (st.coinsCollected || 0) + 1;
+                setCoins(st.coinsCollected);
                 setScore((s) => s + 500);
                 synth.playCoin();
 

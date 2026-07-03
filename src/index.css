@@ -116,3 +116,41 @@ input[type=number] {
   border-color: rgba(255, 183, 3, 0.8);
 }
 
+.is-app-fullscreen {
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  width: 100vw !important;
+  height: 100vh !important;
+  z-index: 99999 !important;
+  background: #000 !important;
+  padding: 0 !important;
+  margin: 0 !important;
+}
+
+/* High-priority full capacity layouts when in fullscreen mode */
+.is-app-fullscreen .flex-1.overflow-y-auto.bg-\[\#0d0d0f\] {
+  padding: 0 !important;
+  height: calc(100vh - 56px) !important;
+  max-height: calc(100vh - 56px) !important;
+}
+
+.is-app-fullscreen .lucky-zone-game-card,
+.is-app-fullscreen .flex.flex-col.bg-\[\#0b0c10\] {
+  height: 100% !important;
+  min-height: 100% !important;
+  max-height: none !important;
+  flex: 1 1 auto !important;
+  border-radius: 0 !important;
+  border: 0 !important;
+}
+
+#live-winner-ticker-widget {
+  max-height: 120px !important;
+  overflow-y: auto !important;
+}
+
+.is-app-fullscreen #live-winner-ticker-widget {
+  margin-top: auto !important;
+}
+

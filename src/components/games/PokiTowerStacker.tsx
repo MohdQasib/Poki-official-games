@@ -25,6 +25,7 @@ export default function PokiTowerStacker({ onSessionComplete, uid, onClose }: Ga
     cameraOffset: 0,
     gameTime: 0,
     speedMultiplier: 1.0,
+    sessionStartTime: 0,
   });
 
   // Resizing canvas
@@ -121,7 +122,17 @@ export default function PokiTowerStacker({ onSessionComplete, uid, onClose }: Ga
 
     // Update Speed multiplier slightly corresponding to tower altitude
     const currentHeight = st.stack.length;
-    st.speedMultiplier = 1.0 + currentHeight * 0.08;
+    let extraSpeedFactor = 1.0;
+    if (currentHeight >= 8) {
+      extraSpeedFactor = 1.0 + (currentHeight - 7) * 0.35;
+    }
+    if (currentHeight >= 12) {
+      extraSpeedFactor = 2.4 + (currentHeight - 11) * 0.75;
+    }
+    if (currentHeight >= 15) {
+      extraSpeedFactor = 5.5 + (currentHeight - 14) * 1.8;
+    }
+    st.speedMultiplier = (1.0 + currentHeight * 0.08) * extraSpeedFactor;
 
     // Slide camera coordinates downward to keep top blocks within viewscreen bounds
     let scrollAmt = 0;
@@ -172,6 +183,7 @@ export default function PokiTowerStacker({ onSessionComplete, uid, onClose }: Ga
       cameraOffset: 0,
       gameTime: 0,
       speedMultiplier: 1.0,
+      sessionStartTime: Date.now(),
     };
 
     setGameState('playing');
@@ -242,10 +254,20 @@ export default function PokiTowerStacker({ onSessionComplete, uid, onClose }: Ga
       const w = canvas.width;
       const h = canvas.height;
 
+      const sessionTimeElapsed = (Date.now() - (st.sessionStartTime || Date.now())) / 1000;
+      let timeMultiplier = 1.0;
+      if (sessionTimeElapsed <= 45) {
+        timeMultiplier = 1.0;
+      } else if (sessionTimeElapsed <= 80) {
+        timeMultiplier = 1.5;
+      } else {
+        timeMultiplier = 3.5;
+      }
+
       st.gameTime++;
 
       // Horizontal block animation move
-      st.currentBlock.x += st.currentBlock.dx;
+      st.currentBlock.x += st.currentBlock.dx * timeMultiplier;
       if (st.currentBlock.x < 10 || st.currentBlock.x + st.currentBlock.w > w - 10) {
         st.currentBlock.dx *= -1; // bounce walls
       }

@@ -31,6 +31,7 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
     distanceRun: 0,
     gameTime: 0,
     multiplier: 1,
+    collectedCoinsCount: 0,
   });
 
   // Handle Resize
@@ -83,7 +84,6 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
       playerY: 150,
       playerVY: 0,
       playerX: 80,
-      ...stateRef.current,
       isThrusting: false,
       obstacles: [],
       coins: [],
@@ -92,6 +92,7 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
       distanceRun: 0,
       gameTime: 0,
       multiplier: 1,
+      collectedCoinsCount: 0,
     };
     
     setGameState('playing');
@@ -179,9 +180,15 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
       setScore(Math.floor(st.distanceRun));
 
       // Physics constants
-      const gravity = 0.35;
-      const thrust = -0.55;
-      const maxSpd = 6;
+      let gravity = 0.35;
+      let thrust = -0.55;
+      let maxSpd = 6;
+      
+      if ((window as any).isExtremeHardMode) {
+        gravity *= 2.5;
+        thrust *= 2.5;
+        maxSpd *= 2.5;
+      }
       
       // Update Player
       if (st.isThrusting) {
@@ -255,7 +262,11 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
       }
 
       // Progress speed slightly
-      st.speed = 4.5 + st.distanceRun * 0.003;
+      let baseSpeed = 4.5 + st.distanceRun * 0.003;
+      if ((window as any).isExtremeHardMode) {
+        baseSpeed *= 2.5;
+      }
+      st.speed = baseSpeed;
 
       // Clear Canvas
       ctx.fillStyle = '#0b0c10';
@@ -323,7 +334,8 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
           const distToPlayer = Math.hypot(coin.x - st.playerX, coin.y - st.playerY);
           if (distToPlayer < coin.radius + 14) {
             coin.collected = true;
-            setCoins((c) => c + 1);
+            st.collectedCoinsCount = (st.collectedCoinsCount || 0) + 1;
+            setCoins(st.collectedCoinsCount);
             synth.playCoin();
             
             // Add sparkle particles
@@ -481,7 +493,7 @@ export default function PokiJetpackRush({ onSessionComplete, uid, onClose }: Gam
       if (isCrashed) {
         cancelAnimationFrame(animId);
         synth.playCrash();
-        syncGameData(Math.floor(st.distanceRun), st.coins.filter(c => c.collected).length);
+        syncGameData(Math.floor(st.distanceRun), st.collectedCoinsCount || 0);
       } else {
         animId = requestAnimationFrame(loop);
       }

@@ -5,7 +5,7 @@ import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, Rocket, AlertOct
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -27,7 +27,7 @@ export default function CrashX({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'flying' | 'crashed'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [selectedRockets, setSelectedRockets] = useState<RocketColor[]>(['gold']);
   const [currentMultiplier, setCurrentMultiplier] = useState<number>(1.0);
   
@@ -176,8 +176,13 @@ export default function CrashX({
       return;
     }
 
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
     const totalDeduction = parsedBet * selectedRockets.length;
-    if (!onDeductBalance(totalDeduction)) {
+    if (!onDeductBalance(totalDeduction, setBetAmount)) {
       alert("Insufficient Balance for selective spot bets.");
       return;
     }

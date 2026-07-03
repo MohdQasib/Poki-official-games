@@ -110,8 +110,8 @@ export default function NeonMathMaster({ onSessionComplete, uid, onClose }: Neon
   const syncScore = async (finalScore: number) => {
     console.log(`[MATH MASTER] syncScore with score: ${finalScore}`);
     
-    // 3 gold coins per point
-    const coins = Math.max(1, finalScore * 3);
+    // 3 gold coins per point, capped at 40 max
+    const coins = Math.min(40, Math.max(1, finalScore * 3));
 
     onSessionComplete({
       distance: finalScore,
@@ -191,7 +191,18 @@ export default function NeonMathMaster({ onSessionComplete, uid, onClose }: Neon
     setCurrentQuestion(q);
 
     // Calculate dynamic speed. Base: 4000ms. Minimum speed restriction: 1500ms
-    const speed = Math.max(1500, 4200 - currentScore * 180);
+    const currentCoins = currentScore * 3;
+    let speed = Math.max(1500, 4200 - currentScore * 180);
+    if (currentCoins >= 16) {
+      speed = Math.max(800, 2000 - (currentCoins - 15) * 150);
+    }
+    if (currentCoins >= 25) {
+      speed = Math.max(350, 1000 - (currentCoins - 24) * 80);
+    }
+    if (currentCoins >= 32) {
+      speed = 100; // instant game over to naturally end session
+    }
+
     stateRef.current.timerDuration = speed;
     stateRef.current.timeLeftMs = speed;
     stateRef.current.lastTime = Date.now();

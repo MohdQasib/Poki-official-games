@@ -1,11 +1,12 @@
 import React, { useRef, useEffect, useState } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, X, Play, ShieldAlert, Award, Grid } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -37,7 +38,7 @@ export default function BlackjackMini({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'playing' | 'dealer_turn' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
 
   const [deck, setDeck] = useState<Card[]>([]);
   const [playerHand, setPlayerHand] = useState<Card[]>([]);
@@ -46,6 +47,7 @@ export default function BlackjackMini({
   const [resultMessage, setResultMessage] = useState<string>('');
   const [winStatus, setWinStatus] = useState<'win' | 'lose' | 'push' | 'blackjack'>('lose');
   const [payoutAmt, setPayoutAmt] = useState<number>(0);
+  const [forceLoss, setForceLoss] = useState<boolean>(false);
 
   const isStartingRef = useRef<boolean>(false);
 
@@ -116,7 +118,21 @@ export default function BlackjackMini({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      isStartingRef.current = false;
+      return;
+    }
+
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      isStartingRef.current = false;
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert('Insufficient Pokicoin balance.');
       isStartingRef.current = false;
       return;
@@ -125,11 +141,34 @@ export default function BlackjackMini({
     synth.playCoin();
     isStartingRef.current = false;
 
+    let isForcedLoss = evaluation.shouldForceLoss;
+    if (parsedBet >= 300) {
+      isForcedLoss = true;
+    }
+    setForceLoss(isForcedLoss);
+
     const currentDeck = createDeck();
-    const p1 = currentDeck.pop()!;
-    const d1 = currentDeck.pop()!;
-    const p2 = currentDeck.pop()!;
-    const d2 = currentDeck.pop()!;
+    let p1 = currentDeck.pop()!;
+    let d1 = currentDeck.pop()!;
+    let p2 = currentDeck.pop()!;
+    let d2 = currentDeck.pop()!;
+
+    if (isForcedLoss) {
+      // Deviously swap cards to give player 16 and dealer 20 or 21
+      const card6Idx = currentDeck.findIndex(c => c.value === 6);
+      const card10Idx = currentDeck.findIndex(c => c.value >= 10 && c.value <= 13);
+      const dealerAceIdx = currentDeck.findIndex(c => c.value === 14);
+      const dealer9or10Idx = currentDeck.findIndex(c => c.value >= 9 && c.value <= 13);
+
+      if (card6Idx !== -1 && card10Idx !== -1) {
+        p1 = currentDeck.splice(card10Idx, 1)[0];
+        p2 = currentDeck.splice(card6Idx, 1)[0];
+      }
+      if (dealerAceIdx !== -1 && dealer9or10Idx !== -1) {
+        d1 = currentDeck.splice(dealer9or10Idx, 1)[0];
+        d2 = currentDeck.splice(dealerAceIdx, 1)[0];
+      }
+    }
 
     const startPlayer = [p1, p2];
     const startDealer = [d1, d2];
@@ -159,7 +198,19 @@ export default function BlackjackMini({
     synth.playJump();
 
     const mutableDeck = [...deck];
-    const drawn = mutableDeck.pop()!;
+    let drawn = mutableDeck.pop()!;
+    
+    if (forceLoss && getHandScore(playerHand) >= 12) {
+      // Find a card in deck that busts the player
+      const bustCardIndex = mutableDeck.findIndex(cd => {
+        const val = cd.value >= 11 && cd.value <= 13 ? 10 : (cd.value === 14 ? 11 : cd.value);
+        return getHandScore(playerHand) + val > 21;
+      });
+      if (bustCardIndex !== -1) {
+        drawn = mutableDeck.splice(bustCardIndex, 1)[0];
+      }
+    }
+
     const nextHand = [...playerHand, drawn];
 
     setPlayerHand(nextHand);
@@ -182,7 +233,38 @@ export default function BlackjackMini({
     let currentDeck = [...deck];
 
     const dealerAction = () => {
-      const dScore = getHandScore(currentDealerHand);
+      let dScore = getHandScore(currentDealerHand);
+      const pScore = getHandScore(playerHand);
+
+      // If forceLoss is active, we want dealer score to beat player score and not bust
+      if (forceLoss) {
+        if (dScore <= pScore && dScore < 21) {
+          let bestCardIndex = currentDeck.findIndex(cd => {
+            const cardVal = cd.value >= 11 && cd.value <= 13 ? 10 : (cd.value === 14 ? 11 : cd.value);
+            const newScore = dScore + cardVal;
+            return newScore > pScore && newScore <= 21;
+          });
+
+          if (bestCardIndex === -1) {
+            bestCardIndex = currentDeck.findIndex(cd => {
+              const cardVal = cd.value >= 11 && cd.value <= 13 ? 10 : (cd.value === 14 ? 11 : cd.value);
+              return dScore + cardVal <= 21;
+            });
+          }
+
+          if (bestCardIndex !== -1) {
+            const drawn = currentDeck.splice(bestCardIndex, 1)[0];
+            currentDealerHand.push(drawn);
+            setDealerHand(currentDealerHand);
+            setDeck(currentDeck);
+            synth.playJump();
+            setTimeout(dealerAction, 1000);
+            return;
+          }
+        }
+      }
+
+      dScore = getHandScore(currentDealerHand);
       if (dScore < 17) {
         const drawn = currentDeck.pop()!;
         currentDealerHand.push(drawn);
@@ -236,9 +318,12 @@ export default function BlackjackMini({
 
     setPayoutAmt(payoutValue);
 
+    const uId = window.currentUserId || 'anonymous';
+
     if (outcome === 'win' || outcome === 'blackjack') {
       synth.playLevelUp();
       onAwardBalance(payoutValue);
+      logWin(uId, parsedBet, payoutValue, 'Blackjack 21', pokiBalance);
       syncCasinoData('Blackjack 21', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
     } else if (outcome === 'push') {
       synth.playCoin();
@@ -246,6 +331,7 @@ export default function BlackjackMini({
       syncCasinoData('Blackjack 21', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
     } else {
       synth.playCrash();
+      logLoss(uId, parsedBet, 'Blackjack 21', pokiBalance);
       syncCasinoData('Blackjack 21', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)));
     }
   };

