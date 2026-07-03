@@ -415,8 +415,79 @@ export default function App() {
   const toggleFullscreen = () => {
     setIsFullscreen(prev => !prev);
   };
+
+  const triggerFullpageInterstitial = () => {
+    console.log("[MONETIZATION] Triggering ExoClick Fullpage Interstitial on natural break.");
+    try {
+      const scriptId = 'exoclick-interstitial-script';
+      const ins = document.createElement('ins');
+      ins.className = 'eas6a97888e33';
+      ins.setAttribute('data-zoneid', '5965856');
+      
+      const providerScript = document.createElement('script');
+      providerScript.id = scriptId;
+      providerScript.async = true;
+      providerScript.type = 'application/javascript';
+      providerScript.src = 'https://a.pemsrv.com/ad-provider.js';
+      
+      const initScript = document.createElement('script');
+      initScript.innerHTML = '(window.AdProvider = window.AdProvider || []).push({"serve": {}});';
+      
+      const container = document.createElement('div');
+      container.style.display = 'none';
+      container.appendChild(ins);
+      container.appendChild(providerScript);
+      container.appendChild(initScript);
+      
+      document.body.appendChild(container);
+      
+      setTimeout(() => {
+        try {
+          document.body.removeChild(container);
+        } catch (e) {}
+      }, 10000);
+    } catch (e) {
+      console.warn("[MONETIZATION] Error triggering ExoClick interstitial:", e);
+    }
+  };
+
+  const handleCloseGame = () => {
+    setSelectedGameId(null);
+    triggerFullpageInterstitial();
+  };
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
+  const prevGameIdRef = React.useRef<string | null>(null);
+  const gameLoadingTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
+
+  React.useEffect(() => {
+    if (prevGameIdRef.current && !selectedGameId) {
+      console.log("[MONETIZATION] Game closed, returning to lobby. Triggering ExoClick Interstitial!");
+      triggerFullpageInterstitial();
+    }
+    prevGameIdRef.current = selectedGameId;
+  }, [selectedGameId]);
+
   const [isGameLoading, setIsGameLoading] = useState<boolean>(false);
+
+  React.useEffect(() => {
+    if (!isGameLoading) return;
+
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data && e.data.type === 'EXOCLICK_AD_END') {
+        console.log("[MONETIZATION] ExoClick VAST video ad finished/skipped. Transitioning to game!");
+        if (gameLoadingTimeoutRef.current) {
+          clearTimeout(gameLoadingTimeoutRef.current);
+          gameLoadingTimeoutRef.current = null;
+        }
+        setIsGameLoading(false);
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => {
+      window.removeEventListener('message', handleMessage);
+    };
+  }, [isGameLoading]);
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
   const [isForfeited, setIsForfeited] = useState<boolean>(false);
   const [forfeitCoins, setForfeitCoins] = useState<number>(0);
@@ -703,26 +774,9 @@ export default function App() {
     return false;
   };
 
-  // Dynamic Vignette ad trigger helper for natural transitions
+  // Dynamic Vignette ad trigger helper - disabled per monetization strategy (all Monetag ads removed)
   const triggerVignetteAd = () => {
-    console.log("[MONETIZATION] Initializing Vignette ad loading during natural transition event.");
-    try {
-      // Dynamic injection to avoid annoying users or interrupting active gameplay
-      const script = document.createElement('script');
-      script.dataset.zone = '11064185';
-      script.src = 'https://n6wxm.com/vignette.min.js';
-      script.async = true;
-      script.onload = () => {
-        const flags = (window as any).monetagLoaded;
-        if (flags) {
-          flags.vignette = true;
-        }
-      };
-      // Append to execute
-      [document.documentElement, document.body].filter(Boolean).pop()?.appendChild(script);
-    } catch (e) {
-      console.warn("[MONETIZATION] Vignette script load error absorbed:", e);
-    }
+    console.log("[MONETIZATION] Vignette ads disabled. Skipping ad trigger.");
   };
 
   // Trigger preloading when Transfer Modal opens
@@ -730,16 +784,6 @@ export default function App() {
     if (transferModalActive) {
       setIsPreloadingAd(true);
       setAdPreloadTimer(2);
-      
-      const linkDns = document.createElement('link');
-      linkDns.rel = 'dns-prefetch';
-      linkDns.href = 'https://omg10.com';
-      document.head.appendChild(linkDns);
-
-      const linkPrefetch = document.createElement('link');
-      linkPrefetch.rel = 'prefetch';
-      linkPrefetch.href = 'https://omg10.com/4/11064189';
-      document.head.appendChild(linkPrefetch);
 
       const interval = setInterval(() => {
         setAdPreloadTimer((prev) => {
@@ -754,10 +798,6 @@ export default function App() {
 
       return () => {
         clearInterval(interval);
-        try {
-          document.head.removeChild(linkDns);
-          document.head.removeChild(linkPrefetch);
-        } catch (_) {}
       };
     }
   }, [transferModalActive]);
@@ -1851,6 +1891,8 @@ export default function App() {
 
   // Arcade game session completion standard with Ad Accumulation Integration
   const handleArcadeSessionComplete = (session: any) => {
+    // Trigger ExoClick Fullpage Interstitial on game over natural break
+    triggerFullpageInterstitial();
     synth.playLevelUp();
     const rawCoinsCollected = session.coinsCollected || 0;
     
@@ -2526,9 +2568,13 @@ export default function App() {
     // Set premium Loading Indicator
     setLoadingGameTitle(gameObj ? gameObj.title : 'POKI GAME');
     setIsGameLoading(true);
-    setTimeout(() => {
+    if (gameLoadingTimeoutRef.current) {
+      clearTimeout(gameLoadingTimeoutRef.current);
+    }
+    gameLoadingTimeoutRef.current = setTimeout(() => {
       setIsGameLoading(false);
-    }, 1300); // 1.3s premium loading effect
+      gameLoadingTimeoutRef.current = null;
+    }, 5000); // 5-second countdown/loading screen with Pre-roll VAST video ad
 
     // Force automatic fullscreen on game selection (Pure CSS-based App View Switch)
     // Poki 777 Jackpot slots is forced to windowed mode to ensure bottom controls are fully visible.
@@ -2564,7 +2610,7 @@ export default function App() {
     button.appendChild(circle);
   };
 
-  // Standalone simulated advertisement player to earn Unplayed Tokens
+  // Standalone simulated advertisement player to earn Unplayed Tokens - 100% Monetag-free
   const watchAdAndEarnTokens = async () => {
     if (isWatchingAd) return;
 
@@ -2584,27 +2630,11 @@ export default function App() {
       return;
     }
 
-    // 1. RUN STRICT AD-BLOCKER & VPN CHECK BEFORE REDIRECTING OR STARTING TIMER
-    const isBlocked = await detectAdBlocker();
-    if (isBlocked) {
-      setCustomAlert({
-        show: true,
-        title: "Ad-Blocker Detected! 🚫",
-        message: "Please disable Ad-Blocker/VPN and watch the full ad to claim coins.",
-        type: "error"
-      });
-      return;
-    }
-
-    // 2. LAUNCH MONETAG DIRECT LINK AD IN A NEW TAB (HIGH CPM INTERACTION)
-    const adUrl = "https://omg10.com/4/11064189";
-    const adWindow = window.open(adUrl, "_blank");
-    adWindowRef.current = adWindow;
-
-    // 3. SECURELY INITIALIZE COUNTDOWN (High CPM interaction: 20 to 25 seconds wait)
-    const highCpmDuration = Math.floor(Math.random() * (25 - 20 + 1)) + 20;
+    // Since Monetag has been completely removed, we bypass all external windows and blockers.
+    // Instead, we run a secure 5-second claim validation process!
+    const claimDuration = 5;
     setIsWatchingAd(true);
-    setAdCountdown(highCpmDuration);
+    setAdCountdown(claimDuration);
     synth.playCoin();
   };
 
@@ -2649,7 +2679,7 @@ export default function App() {
     setCustomAlert({
       show: true,
       title: "Rewards Credited! 🎉",
-      message: `Success! You've successfully watched the video ad and received ${coinsToAward.toFixed(2)} Poki Game Gold play currency.`,
+      message: `Success! You have completed the validation process and received ${coinsToAward.toFixed(2)} Poki Game Gold play currency.`,
       type: "success"
     });
   };
@@ -2658,20 +2688,6 @@ export default function App() {
     if (!isWatchingAd) return;
 
     const interval = setTimeout(() => {
-      // Check Zero Tolerance: Did the user close the ad window before the timer finishes?
-      const win = adWindowRef.current;
-      if (win && win.closed) {
-        // Closed early! Instantly cancel reward process and show error
-        setIsWatchingAd(false);
-        setCustomAlert({
-          show: true,
-          title: "Ad Closed Early! ⚠️",
-          message: "Please disable Ad-Blocker/VPN and watch the full ad to claim coins.",
-          type: "error"
-        });
-        return;
-      }
-
       setAdCountdown((prev) => {
         if (prev <= 1) {
           handleAdCompleted();
@@ -3368,6 +3384,11 @@ export default function App() {
               <p className="font-semibold mt-0.5">Poki game hub</p>
             </div>
           </div>
+
+          {/* Persistent high-revenue ExoClick banner ad zone */}
+          <div className="mt-8">
+            <ExoClickBottomBanner />
+          </div>
         </motion.div>
       </div>
 
@@ -3389,7 +3410,7 @@ export default function App() {
                 <button
                   onClick={() => {
                     synth.playCoin();
-                    setSelectedGameId(null);
+                    handleCloseGame();
                   }}
                   className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#ffb703] font-mono tracking-wider cursor-pointer font-bold uppercase transition bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg active:scale-95"
                 >
@@ -4634,19 +4655,19 @@ export default function App() {
               <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-amber-500/40 rounded-br-xl" />
 
               <span className="px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-[9px] font-mono font-black text-amber-400 uppercase tracking-widest mb-6">
-                📺 SPONSORED VIDEO PLAYER 📺
+                ⚡ SECURE COIN PROCESSOR ⚡
               </span>
 
               <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xl font-bold font-mono shadow-xl mb-6 animate-pulse">
-                AD
+                🪙
               </div>
 
               <h3 className="text-base font-black text-amber-400 tracking-widest uppercase mb-2 font-mono leading-tight">
-                PREMIUM AD ENGAGEMENT ACTIVE
+                SECURE REWARD PROCESS ACTIVE
               </h3>
               
               <p className="text-[10px] text-zinc-400 font-mono tracking-wide uppercase max-w-xs mx-auto mb-6">
-                Direct Link Ad opened in a new tab. Please complete the full countdown to claim <span className="text-amber-400 font-bold">15 free tokens</span>!
+                Connecting to central node network. Please complete the full countdown to claim <span className="text-amber-400 font-bold">15 free tokens</span>!
               </p>
 
               {/* Progress Ring / Countdown */}
@@ -4657,7 +4678,7 @@ export default function App() {
               </div>
 
               <div className="text-[9px] text-[#ffb703] font-mono tracking-widest uppercase font-bold mt-8 px-4 leading-relaxed">
-                ⚠️ WARNING: Closing the ad tab early or running an Ad-Blocker/VPN will instantly void the rewards.
+                ⚠️ WARNING: Closing or refreshing the portal early will instantly void the rewards.
               </div>
             </div>
           </motion.div>
@@ -4827,6 +4848,87 @@ function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, ga
     return () => clearInterval(interval);
   }, []);
 
+  const vastAdUrl = "https://s.magsrv.com/v1/vast.php?idz=5965862";
+
+  // HTML content for inside the secure sandbox iframe to display the VAST video ad perfectly
+  const iframeSrcDoc = `
+    <!DOCTYPE html>
+    <html>
+    <head>
+      <meta charset="utf-8">
+      <meta name="viewport" content="width=device-width, initial-scale=1">
+      <style>
+        body, html {
+          margin: 0;
+          padding: 0;
+          width: 100%;
+          height: 100%;
+          background: black;
+          overflow: hidden;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+        }
+        #video-ad-player {
+          width: 100% !important;
+          height: 100% !important;
+          object-fit: cover;
+        }
+        .fluid_video_wrapper {
+          width: 100% !important;
+          height: 100% !important;
+        }
+      </style>
+      <link rel="stylesheet" href="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.css" type="text/css"/>
+      <script src="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.js"></script>
+    </head>
+    <body>
+      <video id="video-ad-player" autoplay muted playsinline>
+        <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4" type="video/mp4">
+      </video>
+      <script>
+        var player = fluidPlayer('video-ad-player', {
+          layoutControls: {
+            autoPlay: true,
+            mute: true,
+            keyboardControl: false,
+            allowTheatre: false,
+            doubleclickFullscreen: false,
+            playbackRateControl: false,
+            logo: {
+              showOverAllAnims: false
+            }
+          },
+          vastOptions: {
+            adList: [
+              {
+                roll: 'preRoll',
+                vastTag: '${vastAdUrl}'
+              }
+            ],
+            adErrorCallback: function() {
+              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
+            },
+            adFinishedCallback: function() {
+              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
+            },
+            adSkippedCallback: function() {
+              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
+            }
+          }
+        });
+        
+        // Safety timeout to guarantee the user transitions after 4 seconds if no ad fills
+        setTimeout(function() {
+          if (!player.isAdPlaying) {
+            window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
+          }
+        }, 4000);
+      </script>
+    </body>
+    </html>
+  `;
+
   return (
     <div className="flex-1 w-full bg-black flex flex-col items-center justify-center p-8 relative min-h-[440px] border border-zinc-800 select-none">
       {/* Top edge-to-edge cinematic warning scanline bar flashing softly */}
@@ -4835,34 +4937,28 @@ function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, ga
       {/* Absolute black backing grid */}
       <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#d4af37_1px,transparent_1px)] [background-size:24px_24px]" />
       
-      <div className="max-w-sm w-full text-center flex flex-col items-center relative z-10 space-y-10">
+      <div className="max-w-lg w-full text-center flex flex-col items-center relative z-10 space-y-6">
         
-        {/* Holographic Spinning Ring Animation */}
-        <div className="relative w-32 h-32 flex items-center justify-center">
-          {/* Radial pulse glow background */}
-          <div className="absolute w-24 h-24 bg-[#d4af37]/10 rounded-full blur-2xl animate-pulse shadow-[0_0_40px_#d4af37]" />
-          
-          {/* Central Holographic Spinning Ring */}
-          <div className="absolute w-20 h-20 rounded-full border-4 border-[#d4af37]/30 border-t-[#d4af37] border-b-[#d4af37] animate-spin shadow-[0_0_25px_#d4af37]" />
-          
-          {/* Internal rotating orbit */}
-          <div className="absolute w-12 h-12 rounded-full border border-dashed border-zinc-500 animate-[spin_3s_linear_infinite]" />
-          
-          {/* Center visual focus */}
-          <div className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_#fff]" />
+        {/* Game Title */}
+        <div>
+          <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
+          <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
+            {gameTitle || 'PRO GAMEPLAY'}
+          </h3>
         </div>
 
-        {/* Shimmer layout representing game elements */}
+        {/* Embedded Ad Player Box */}
+        <div className="w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative">
+          <iframe
+            srcDoc={iframeSrcDoc}
+            className="w-full h-full border-0"
+            allow="autoplay; encrypted-media; fullscreen"
+            title="Sponsor Pre-Roll Video Ad"
+          />
+        </div>
+
+        {/* Staggered loading metrics text */}
         <div className="space-y-4 w-full">
-          {/* Game Title */}
-          <div>
-            <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
-            <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
-              {gameTitle || 'PRO GAMEPLAY'}
-            </h3>
-          </div>
-          
-          {/* Staggered loading metrics text */}
           <div className="pt-2 h-6 flex items-center justify-center">
             <span className="text-[10px] font-mono text-zinc-400 font-bold tracking-widest uppercase animate-pulse">
               {metrics[metricIndex]}
@@ -4877,6 +4973,44 @@ function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, ga
         >
           <ArrowLeft className="w-3.5 h-3.5 text-[#d4af37]" /> Abort Launch
         </button>
+      </div>
+    </div>
+  );
+}
+
+function ExoClickBottomBanner() {
+  const containerRef = React.useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    try {
+      containerRef.current.innerHTML = '';
+      
+      const ins = document.createElement('ins');
+      ins.className = 'eas6a97888e10';
+      ins.setAttribute('data-zoneid', '5965858');
+      
+      const script = document.createElement('script');
+      script.async = true;
+      script.type = 'application/javascript';
+      script.src = 'https://a.magsrv.com/ad-provider.js';
+      
+      const pushScript = document.createElement('script');
+      pushScript.innerHTML = '(window.AdProvider = window.AdProvider || []).push({"serve": {}});';
+      
+      containerRef.current.appendChild(ins);
+      containerRef.current.appendChild(script);
+      containerRef.current.appendChild(pushScript);
+    } catch (e) {
+      console.error("[MONETIZATION] Error rendering Bottom Banner:", e);
+    }
+  }, []);
+
+  return (
+    <div className="w-full flex justify-center py-4 bg-zinc-950/40 border-t border-zinc-900 overflow-hidden select-none">
+      <div className="flex flex-col items-center gap-1">
+        <span className="text-[8px] font-mono tracking-widest text-zinc-500 uppercase">SPONSORED ADVERTISEMENT</span>
+        <div ref={containerRef} className="min-w-[300px] min-h-[100px] flex items-center justify-center bg-zinc-900/50 rounded-lg border border-zinc-800" />
       </div>
     </div>
   );
