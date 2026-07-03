@@ -9,11 +9,13 @@ import {
   Gamepad2, Coins, Flame, Award, Sparkles, Trophy, Users, Check, Search, Play, ArrowLeft, 
   Layers, Rocket, TrendingUp, RefreshCw, Zap, Target, Circle, Dribbble, Square, 
   HelpCircle, Copy, Shuffle, Heart, Hash, Database, Volume2, VolumeX, ShieldAlert,
-  ChevronRight, AlignJustify, Dices, Maximize, Minimize, Radio, Plus, Smartphone, History, Tv, ArrowRightLeft
+  ChevronRight, AlignJustify, Dices, Maximize, Minimize, Radio, Plus, Smartphone, History, Tv, ArrowRightLeft, ArrowRight
 } from 'lucide-react';
 import { synth } from './utils/audioSynth';
 import { syncGamingCreditsToFirebase } from './utils/firebaseSync';
 import { GameSession } from './types';
+import { AdsterraTopBanner } from './components/AdsterraTopBanner';
+import { GameLoadingLoader } from './components/GameLoadingLoader';
 
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/database';
@@ -3154,6 +3156,9 @@ export default function App() {
           exit={{ opacity: 0 }}
           className="flex-1 flex flex-col px-4 sm:px-8 py-6 sm:py-8 max-w-7xl mx-auto w-full z-10"
         >
+          {/* Adsterra Top Banner Ad Placement */}
+          <AdsterraTopBanner />
+
           {/* PLAY & EARN ECONOMIST LIVE HUD - Visually hidden to fix theme aesthetics, background trackers preserved */}
           {activeCategory === 'arcade' && null}
 
@@ -4831,8 +4836,13 @@ export default function App() {
   );
 }
 
-function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, gameTitle: string, onCancel: () => void }) {
+function LegacyLocalGameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, gameTitle: string, onCancel: () => void }) {
   const [metricIndex, setMetricIndex] = useState(0);
+  const [adType, setAdType] = useState<'hilltop-vast' | 'exoclick-vast' | 'exoclick-outstream' | 'exoclick-slider'>('exoclick-vast');
+  const [adState, setAdState] = useState<'loading' | 'playing' | 'fallback' | 'completed'>('loading');
+  const [skipTimer, setSkipTimer] = useState(6);
+  const [canSkip, setCanSkip] = useState(false);
+
   const metrics = [
     "VERIFYING SHIELD V9 INTEGRITY...",
     "ESTABLISHING RTC CHANNELS...",
@@ -4841,145 +4851,461 @@ function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, ga
     "SYNCHRONIZING SECURE LEDGER..."
   ];
 
+  // MODULE 1: THE SMART AD ROTATOR & FALLBACK SYSTEM
   useEffect(() => {
-    const interval = setInterval(() => {
-      setMetricIndex((prev) => (prev + 1) % metrics.length);
-    }, 1200);
-    return () => clearInterval(interval);
+    const adPool: ('hilltop-vast' | 'exoclick-vast' | 'exoclick-outstream' | 'exoclick-slider')[] = [
+      'hilltop-vast',
+      'exoclick-vast',
+      'exoclick-outstream',
+      'exoclick-slider'
+    ];
+    // Select randomly to cycle ads per session, ensuring a unique experience
+    const chosen = adPool[Math.floor(Math.random() * adPool.length)];
+    setAdType(chosen);
+    console.log(`[MONETIZATION] Smart Ad Rotator selected: ${chosen} for this session`);
   }, []);
 
-  const vastAdUrl = "https://s.magsrv.com/v1/vast.php?idz=5965862";
+  // Standard loading metrics rotation
+  useEffect(() => {
+    if (adState !== 'playing') {
+      const interval = setInterval(() => {
+        setMetricIndex((prev) => (prev + 1) % metrics.length);
+      }, 1200);
+      return () => clearInterval(interval);
+    }
+  }, [adState]);
 
-  // HTML content for inside the secure sandbox iframe to display the VAST video ad perfectly
-  const iframeSrcDoc = `
-    <!DOCTYPE html>
-    <html>
-    <head>
-      <meta charset="utf-8">
-      <meta name="viewport" content="width=device-width, initial-scale=1">
-      <style>
-        body, html {
-          margin: 0;
-          padding: 0;
-          width: 100%;
-          height: 100%;
-          background: black;
-          overflow: hidden;
-          display: flex;
-          align-items: center;
-          justify-content: center;
+  // MODULE 1: ANTI-BLANK SCREEN LOGIC (TIMEOUT HANDLER) - STRICT 2.0 SECOND OVERALL LIMIT
+  useEffect(() => {
+    let fallbackTimeout: NodeJS.Timeout;
+    if (adState === 'loading') {
+      fallbackTimeout = setTimeout(() => {
+        console.warn("[MONETIZATION] Ad did not initialize within 2 seconds. Triggering fallback.");
+        setAdState('fallback');
+      }, 2000);
+    }
+    return () => {
+      if (fallbackTimeout) clearTimeout(fallbackTimeout);
+    };
+  }, [adState]);
+
+  // Handle cross-context messages from iframe player
+  useEffect(() => {
+    const handleMessage = (e: MessageEvent) => {
+      if (e.data) {
+        if (e.data.type === 'EXOCLICK_AD_END' || e.data.type === 'AD_COMPLETED') {
+          console.log("[MONETIZATION] Ad completed or skipped inside iframe.");
+          handleProceedToGame();
+        } else if (e.data.type === 'AD_PLAYING') {
+          console.log(`[MONETIZATION] Ad is actively playing: ${adType}`);
+          setAdState('playing');
+        } else if (e.data.type === 'AD_LOAD_FAILED') {
+          console.warn(`[MONETIZATION] Ad failed to load inside iframe for type: ${adType}`);
+          setAdState('fallback');
         }
-        #video-ad-player {
-          width: 100% !important;
-          height: 100% !important;
-          object-fit: cover;
-        }
-        .fluid_video_wrapper {
-          width: 100% !important;
-          height: 100% !important;
-        }
-      </style>
-      <link rel="stylesheet" href="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.css" type="text/css"/>
-      <script src="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.js"></script>
-    </head>
-    <body>
-      <video id="video-ad-player" autoplay muted playsinline>
-        <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4" type="video/mp4">
-      </video>
-      <script>
-        var player = fluidPlayer('video-ad-player', {
-          layoutControls: {
-            autoPlay: true,
-            mute: true,
-            keyboardControl: false,
-            allowTheatre: false,
-            doubleclickFullscreen: false,
-            playbackRateControl: false,
-            logo: {
-              showOverAllAnims: false
-            }
-          },
-          vastOptions: {
-            adList: [
-              {
-                roll: 'preRoll',
-                vastTag: '${vastAdUrl}'
-              }
-            ],
-            adErrorCallback: function() {
-              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
-            },
-            adFinishedCallback: function() {
-              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
-            },
-            adSkippedCallback: function() {
-              window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
-            }
+      }
+    };
+
+    window.addEventListener('message', handleMessage);
+    return () => window.removeEventListener('message', handleMessage);
+  }, [adType]);
+
+  // MODULE 2: YOUTUBE-STYLE SMART TIMER & SKIP LOGIC
+  useEffect(() => {
+    if (adState === 'playing') {
+      const timer = setInterval(() => {
+        setSkipTimer((prev) => {
+          if (prev <= 1) {
+            clearInterval(timer);
+            setCanSkip(true);
+            return 0;
           }
+          return prev - 1;
         });
-        
-        // Safety timeout to guarantee the user transitions after 4 seconds if no ad fills
-        setTimeout(function() {
-          if (!player.isAdPlaying) {
-            window.parent.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
-          }
-        }, 4000);
-      </script>
-    </body>
-    </html>
-  `;
+      }, 1000);
+      return () => clearInterval(timer);
+    }
+  }, [adState]);
+
+  const handleProceedToGame = () => {
+    // Smoothly clear loading states and launch the game
+    window.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
+  };
+
+  // Safe fallback transition timer
+  useEffect(() => {
+    if (adState === 'fallback') {
+      const t = setTimeout(() => {
+        handleProceedToGame();
+      }, 1200);
+      return () => clearTimeout(t);
+    }
+  }, [adState]);
+
+  const getIframeSrcDoc = () => {
+    const hilltopVast = "https://crookedagreement.com/d.mhFRztdmG/N-vFZPGUUM/feam/9luUZdUol/k/PvTfcrxoOiD/kx3/NeT/cotbNdzxE/4UOrTTcg2wM/QT";
+    const exoclickVast = "https://s.magsrv.com/v1/vast.php?idz=5965862";
+
+    if (adType === 'hilltop-vast' || adType === 'exoclick-vast') {
+      const activeVastUrl = adType === 'hilltop-vast' ? hilltopVast : exoclickVast;
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <meta name="viewport" content="width=device-width, initial-scale=1">
+          <style>
+            body, html {
+              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
+              overflow: hidden; display: flex; align-items: center; justify-content: center;
+            }
+            #video-player {
+              width: 100% !important; height: 100% !important; object-fit: contain !important;
+            }
+          </style>
+          <link rel="stylesheet" href="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.css" type="text/css"/>
+          <script src="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.js"></script>
+        </head>
+        <body>
+          <video id="video-player" autoplay muted playsinline>
+            <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4" type="video/mp4">
+          </video>
+          <script>
+            var playerStarted = false;
+            
+            // MODULE 4: LIGHTWEIGHT HTML5 PLAYER & VAST XML PARSER ENGINE
+            function parseAndPlayVast() {
+              try {
+                var controller = null;
+                if (typeof AbortController !== 'undefined') {
+                  controller = new AbortController();
+                }
+                var signal = controller ? controller.signal : null;
+                var fetchTimeout = setTimeout(function() {
+                  if (controller) controller.abort();
+                }, 1500);
+
+                var options = { mode: 'cors' };
+                if (signal) options.signal = signal;
+
+                fetch('${activeVastUrl}', options)
+                  .then(function(r) { 
+                    clearTimeout(fetchTimeout);
+                    if (!r.ok) throw new Error("HTTP error " + r.status);
+                    return r.text(); 
+                  })
+                  .then(function(xml) {
+                    try {
+                      var parser = new DOMParser();
+                      var xmlDoc = parser.parseFromString(xml, 'text/xml');
+                      
+                      // Check for XML parsing error
+                      var parserError = xmlDoc.getElementsByTagName('parsererror');
+                      if (parserError.length > 0) {
+                        throw new Error("XML parsing error");
+                      }
+
+                      var mediaFiles = xmlDoc.getElementsByTagName('MediaFile');
+                      if (mediaFiles && mediaFiles.length > 0) {
+                        var directUrl = '';
+                        for (var i = 0; i < mediaFiles.length; i++) {
+                          var type = mediaFiles[i].getAttribute('type') || '';
+                          if (type.indexOf('video') !== -1 || type.indexOf('mp4') !== -1) {
+                            directUrl = mediaFiles[i].textContent.trim();
+                            break;
+                          }
+                        }
+                        if (!directUrl) {
+                          directUrl = mediaFiles[0].textContent.trim();
+                        }
+
+                        // Remove CDATA wrapper characters
+                        directUrl = directUrl.replace(/^<!\\[CDATA\\[/, '').replace(/\\]\\]>$/, '');
+
+                        if (!directUrl) {
+                          throw new Error("No media file URL found in VAST XML");
+                        }
+
+                        // Clean mixed content if page is HTTPS and VAST returns HTTP URL
+                        if (window.location.protocol === 'https:' && directUrl.indexOf('http:') === 0) {
+                          directUrl = directUrl.replace('http:', 'https:');
+                        }
+
+                        var video = document.getElementById('video-player');
+                        video.src = directUrl;
+                        video.load();
+                        
+                        // Setup event listeners
+                        video.onplaying = function() {
+                          playerStarted = true;
+                          window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
+                        };
+                        video.onerror = function() {
+                          window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+                        };
+                        video.onended = function() {
+                          window.parent.postMessage({ type: 'AD_COMPLETED' }, '*');
+                        };
+
+                        video.play().catch(function(e) {
+                          // Try muted autoplay fallback
+                          video.muted = true;
+                          video.play().catch(function() {
+                            window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+                          });
+                        });
+                      } else {
+                        throw new Error("No media file elements found in VAST XML");
+                      }
+                    } catch(innerErr) {
+                      launchFluidPlayer();
+                    }
+                  })
+                  .catch(function(err) {
+                    clearTimeout(fetchTimeout);
+                    launchFluidPlayer();
+                  });
+              } catch (e) {
+                launchFluidPlayer();
+              }
+            }
+
+            function launchFluidPlayer() {
+              try {
+                if (typeof fluidPlayer === 'undefined') {
+                  throw new Error("FluidPlayer CDN not loaded or blocked by ad-blocker");
+                }
+                var fp = fluidPlayer('video-player', {
+                  layoutControls: {
+                    autoPlay: true, mute: true, keyboardControl: false, allowTheatre: false,
+                    doubleclickFullscreen: false, playbackRateControl: false, logo: { showOverAllAnims: false }
+                  },
+                  vastOptions: {
+                    adList: [{ roll: 'preRoll', vastTag: '${activeVastUrl}' }],
+                    adStartedCallback: function() {
+                      playerStarted = true;
+                      window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
+                    },
+                    adErrorCallback: function() {
+                      window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+                    },
+                    adFinishedCallback: function() {
+                      window.parent.postMessage({ type: 'AD_COMPLETED' }, '*');
+                    }
+                  }
+                });
+              } catch(e) {
+                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+              }
+            }
+
+            // Begin parsing sequence
+            parseAndPlayVast();
+
+            // Safety timeout to trigger fallback if everything gets stuck or blocked
+            setTimeout(function() {
+              if (!playerStarted) {
+                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+              }
+            }, 1500);
+          </script>
+        </body>
+        </html>
+      `;
+    } else if (adType === 'exoclick-outstream') {
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body, html {
+              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
+              overflow: hidden; display: flex; align-items: center; justify-content: center;
+            }
+            .outstream-box {
+              width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="outstream-box">
+            <ins class="eas6a97888e37" data-zoneid="5965992"></ins>
+          </div>
+          <script>
+            var script = document.createElement('script');
+            script.async = true;
+            script.type = 'application/javascript';
+            script.src = 'https://a.magsrv.com/ad-provider.js';
+            script.onload = function() {
+              try {
+                (window.AdProvider = window.AdProvider || []).push({"serve": {}});
+                window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
+              } catch(e) {
+                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+              }
+            };
+            script.onerror = function() {
+              window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+            };
+            document.head.appendChild(script);
+          </script>
+        </body>
+        </html>
+      `;
+    } else {
+      // Slider Ad
+      return `
+        <!DOCTYPE html>
+        <html>
+        <head>
+          <meta charset="utf-8">
+          <style>
+            body, html {
+              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
+              overflow: hidden; display: flex; align-items: center; justify-content: center;
+              position: relative;
+            }
+            .slider-box {
+              width: 100%; height: 100%; position: absolute; left: 0; top: 0;
+              display: flex; align-items: center; justify-content: center;
+            }
+          </style>
+        </head>
+        <body>
+          <div class="slider-box">
+            <ins class="eas6a97888e31" data-zoneid="5965996"></ins>
+          </div>
+          <script>
+            var script = document.createElement('script');
+            script.async = true;
+            script.type = 'application/javascript';
+            script.src = 'https://a.magsrv.com/ad-provider.js';
+            script.onload = function() {
+              try {
+                (window.AdProvider = window.AdProvider || []).push({"serve": {}});
+                window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
+              } catch(e) {
+                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+              }
+            };
+            script.onerror = function() {
+              window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
+            };
+            document.head.appendChild(script);
+          </script>
+        </body>
+        </html>
+      `;
+    }
+  };
+
+  // MODULE 3: DYNAMIC, AUTO-ADJUSTING UI
+  const isCinematic = adType === 'hilltop-vast' || adType === 'exoclick-vast' || adType === 'exoclick-outstream';
+  const useCinematicOverlay = isCinematic && adState === 'playing';
 
   return (
-    <div className="flex-1 w-full bg-black flex flex-col items-center justify-center p-8 relative min-h-[440px] border border-zinc-800 select-none">
-      {/* Top edge-to-edge cinematic warning scanline bar flashing softly */}
+    <div className={useCinematicOverlay 
+      ? "fixed inset-0 z-[120] bg-black/98 flex flex-col items-center justify-center p-4 sm:p-8 select-none animate-fade-in"
+      : "flex-1 w-full bg-black flex flex-col items-center justify-center p-8 relative min-h-[440px] border border-zinc-800 select-none"
+    }>
+      {/* Cinematic Pulse Header Scanline bar */}
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#d4af37] via-amber-500 to-[#d4af37] opacity-60 animate-pulse" />
       
-      {/* Absolute black backing grid */}
+      {/* Background Matrix Starfield Effect */}
       <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#d4af37_1px,transparent_1px)] [background-size:24px_24px]" />
       
-      <div className="max-w-lg w-full text-center flex flex-col items-center relative z-10 space-y-6">
-        
-        {/* Game Title */}
-        <div>
-          <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
-          <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
-            {gameTitle || 'PRO GAMEPLAY'}
-          </h3>
-        </div>
-
-        {/* Embedded Ad Player Box */}
-        <div className="w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative">
-          <iframe
-            srcDoc={iframeSrcDoc}
-            className="w-full h-full border-0"
-            allow="autoplay; encrypted-media; fullscreen"
-            title="Sponsor Pre-Roll Video Ad"
-          />
-        </div>
-
-        {/* Staggered loading metrics text */}
-        <div className="space-y-4 w-full">
-          <div className="pt-2 h-6 flex items-center justify-center">
-            <span className="text-[10px] font-mono text-zinc-400 font-bold tracking-widest uppercase animate-pulse">
-              {metrics[metricIndex]}
-            </span>
+      {adState === 'fallback' ? (
+        <div className="flex flex-col items-center justify-center space-y-6 text-center py-8 max-w-sm w-full">
+          <div className="w-16 h-16 rounded-full border-4 border-dashed border-[#d4af37] border-t-transparent animate-spin flex items-center justify-center" />
+          <div>
+            <h3 className="text-sm font-mono font-black text-[#d4af37] uppercase tracking-widest">Fast-Tracking Game Launch...</h3>
+            <p className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider mt-1.5 leading-relaxed">Sponsor ad feed optimized. Securing game channel.</p>
+          </div>
+          <div className="w-full scale-90 opacity-90">
+            <ExoClickBottomBanner />
           </div>
         </div>
+      ) : (
+        <div className={useCinematicOverlay 
+          ? "max-w-4xl w-full text-center flex flex-col items-center relative z-10 space-y-4"
+          : "max-w-lg w-full text-center flex flex-col items-center relative z-10 space-y-6"
+        }>
+          
+          {/* Header Banner - Only show if not playing a full cinematic video */}
+          {adState !== 'playing' && (
+            <div>
+              <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
+              <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
+                {gameTitle || 'PRO GAMEPLAY'}
+              </h3>
+            </div>
+          )}
 
-        {/* Cancel button */}
-        <button
-          onClick={onCancel}
-          className="px-5 py-2 bg-zinc-950/95 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-mono uppercase tracking-[0.2em] font-black rounded-xl transition duration-200 active:scale-95 cursor-pointer flex items-center gap-2 shadow-md shadow-black"
-        >
-          <ArrowLeft className="w-3.5 h-3.5 text-[#d4af37]" /> Abort Launch
-        </button>
-      </div>
+          {/* Embedded Dynamic Ad Player Container Box */}
+          <div className={useCinematicOverlay 
+            ? "w-full aspect-video bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl relative shadow-[#d4af37]/5"
+            : adType === 'exoclick-slider'
+              ? "w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative"
+              : "w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative"
+          }>
+            <iframe
+              srcDoc={getIframeSrcDoc()}
+              className="w-full h-full border-0"
+              allow="autoplay; encrypted-media; fullscreen"
+              title="Smart Rotator Ad System"
+            />
+
+            {/* Smart Countdown/Skip Button overlay */}
+            {adState === 'playing' && (
+              <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
+                {!canSkip ? (
+                  <div className="px-4 py-2.5 bg-black/85 backdrop-blur-md rounded-xl border border-zinc-800 text-white font-mono text-[10px] font-black tracking-widest flex items-center gap-2">
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                    AD ENDS IN <span className="text-[#d4af37]">{skipTimer}s</span>
+                  </div>
+                ) : (
+                  <button
+                    onClick={handleProceedToGame}
+                    className="px-5 py-2.5 bg-gradient-to-r from-[#ffb703] to-[#ffd166] hover:brightness-110 active:scale-95 text-black font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer flex items-center gap-2 transition-all animate-bounce"
+                  >
+                    Skip Ad <ArrowRight className="w-4 h-4 text-black" />
+                  </button>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Staggered loading metrics text - Hidden when video is actively playing for clear screen */}
+          {adState !== 'playing' && (
+            <div className="space-y-4 w-full">
+              <div className="pt-2 h-6 flex items-center justify-center">
+                <span className="text-[10px] font-mono text-zinc-400 font-bold tracking-widest uppercase animate-pulse">
+                  {metrics[metricIndex]}
+                </span>
+              </div>
+            </div>
+          )}
+
+          {/* Cancel button - Abort Launch */}
+          {adState !== 'playing' && (
+            <button
+              onClick={onCancel}
+              className="px-5 py-2 bg-zinc-950/95 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-mono uppercase tracking-[0.2em] font-black rounded-xl transition duration-200 active:scale-95 cursor-pointer flex items-center gap-2 shadow-md shadow-black"
+            >
+              <ArrowLeft className="w-3.5 h-3.5 text-[#d4af37]" /> Abort Launch
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
 
+// MODULE 5: FIX THE 300x100 BANNER LAYOUT & AD-BLOCKER FALLBACK
 function ExoClickBottomBanner() {
   const containerRef = React.useRef<HTMLDivElement>(null);
+  const [isBlocked, setIsBlocked] = useState(false);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -5001,16 +5327,42 @@ function ExoClickBottomBanner() {
       containerRef.current.appendChild(ins);
       containerRef.current.appendChild(script);
       containerRef.current.appendChild(pushScript);
+
+      // Detect Ad Blockers or network failures safely and display a clean brand backup
+      const checkTimeout = setTimeout(() => {
+        if (containerRef.current) {
+          const height = containerRef.current.getBoundingClientRect().height;
+          const hasChildren = containerRef.current.children.length > 3 || containerRef.current.querySelector('iframe');
+          if (height < 50 || !hasChildren) {
+            setIsBlocked(true);
+          }
+        }
+      }, 1500);
+
+      return () => clearTimeout(checkTimeout);
     } catch (e) {
       console.error("[MONETIZATION] Error rendering Bottom Banner:", e);
+      setIsBlocked(true);
     }
   }, []);
 
   return (
     <div className="w-full flex justify-center py-4 bg-zinc-950/40 border-t border-zinc-900 overflow-hidden select-none">
-      <div className="flex flex-col items-center gap-1">
-        <span className="text-[8px] font-mono tracking-widest text-zinc-500 uppercase">SPONSORED ADVERTISEMENT</span>
-        <div ref={containerRef} className="min-w-[300px] min-h-[100px] flex items-center justify-center bg-zinc-900/50 rounded-lg border border-zinc-800" />
+      <div className="flex flex-col items-center gap-1.5">
+        <span className="text-[8px] font-mono tracking-widest text-zinc-400/60 uppercase">SPONSORED ADVERTISEMENT</span>
+        <div 
+          ref={containerRef} 
+          style={{ minWidth: '300px', minHeight: '100px' }}
+          className="min-w-[300px] min-h-[100px] flex items-center justify-center bg-zinc-900/50 rounded-xl border border-zinc-850/80 relative overflow-hidden shadow-inner"
+        >
+          {isBlocked && (
+            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 to-zinc-900 p-2 text-center animate-fade-in border border-amber-500/10 rounded-xl">
+              <span className="text-[10px] font-sans font-black text-[#d4af37] tracking-[0.2em] uppercase">POKI COIN MEMBER VIP club</span>
+              <span className="text-[8px] font-mono text-zinc-500 uppercase mt-1">Play Premium Games & Earn 2X Gold Multipliers</span>
+              <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b border-r border-[#d4af37]/20" />
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
