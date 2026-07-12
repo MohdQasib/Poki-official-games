@@ -21,6 +21,10 @@ class AudioSynth {
     return this.isMuted;
   }
 
+  public setMuted(muted: boolean) {
+    this.isMuted = muted;
+  }
+
   public getMuteState() {
     return this.isMuted;
   }

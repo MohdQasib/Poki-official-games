@@ -9,13 +9,11 @@ import {
   Gamepad2, Coins, Flame, Award, Sparkles, Trophy, Users, Check, Search, Play, ArrowLeft, 
   Layers, Rocket, TrendingUp, RefreshCw, Zap, Target, Circle, Dribbble, Square, 
   HelpCircle, Copy, Shuffle, Heart, Hash, Database, Volume2, VolumeX, ShieldAlert,
-  ChevronRight, AlignJustify, Dices, Maximize, Minimize, Radio, Plus, Smartphone, History, Tv, ArrowRightLeft, ArrowRight
+  ChevronRight, AlignJustify, Dices, Maximize, Minimize, Radio, Plus, Smartphone, History, Tv, ArrowRightLeft, X, ArrowRight
 } from 'lucide-react';
 import { synth } from './utils/audioSynth';
 import { syncGamingCreditsToFirebase } from './utils/firebaseSync';
 import { GameSession } from './types';
-import { AdsterraTopBanner } from './components/AdsterraTopBanner';
-import { GameLoadingLoader } from './components/GameLoadingLoader';
 
 import firebase from 'firebase/compat/app';
 import 'firebase/compat/database';
@@ -54,9 +52,6 @@ const mainAppConfig = {
 
 const MAIN_APP_URL = import.meta.env.VITE_MAIN_APP_URL || 'https://minipokicoin.in';
 
-// Temporary testing toggle: disable user ID (UID) verification check to allow direct access
-const TESTING_MODE_DISABLE_UID_VERIFICATION = true;
-
 // Initialization Instances (Compat first, which registers them in the global registry)
 const gamingCompatApp = firebase.initializeApp(gamingAppConfig, "GamingWebsiteApp");
 const mainCompatApp = firebase.initializeApp(mainAppConfig, "MainWebsiteApp");
@@ -86,6 +81,7 @@ import DinoRun from './components/games/DinoRun';
 import Puzzle2048 from './components/games/Puzzle2048';
 import NeonMathMaster from './components/games/NeonMathMaster';
 import MemoryMatch from './components/games/MemoryMatch';
+import BannerAd from './components/BannerAd';
 
 // Import All Casino Games
 import PokiCrash from './components/casino/PokiCrash';
@@ -172,6 +168,16 @@ const liveWinnersMock = [
   "🏆 Harish V. secured 420 Poki Gold (₹8.40 INR) in Neon Math Master !"
 ];
 
+// HIGH CPM SMART LINKS PROVIDED BY USER
+const SMART_LINKS = [
+  "https://www.effectivecpmnetwork.com/hqqicp3x?key=32c693e63550b6e605f52d51bc9afb63",
+  "https://www.effectivecpmnetwork.com/r30kkf2f?key=2f6e741f36c8e64adb6aef7047abbb45",
+  "https://www.effectivecpmnetwork.com/nki0gxe17?key=70249004bd9fdfbd89f0f8f2edbef0d9",
+  "https://www.effectivecpmnetwork.com/v48r636qxc?key=7ed160769a35177804f917a9015ae0eb",
+  "https://www.effectivecpmnetwork.com/k16y97u5?key=4be2846340e00e2829828b500922fcf8",
+  "https://www.effectivecpmnetwork.com/czbfukhd2?key=24ac14d041b55f417714092e65785a08"
+];
+
 export default function App() {
   const testerAccountEmail = 'hunterhackingtv@gmail.com';
 
@@ -185,8 +191,26 @@ export default function App() {
     return cached > 0 ? cached : 250;
   });
   const pokiBalance = parseFloat((pokiGamingGold + pokiGoldWinning).toFixed(5));
+  
+  // Custom High CPM Sponsor Ads State Hooks
   const [isWatchingAd, setIsWatchingAd] = useState<boolean>(false);
-  const [adCountdown, setAdCountdown] = useState<number>(6);
+  const [adCountdown, setAdCountdown] = useState<number>(15);
+  const [adCompletedCallback, setAdCompletedCallback] = useState<(() => void) | null>(null);
+  const [adRewardType, setAdRewardType] = useState<'watch_earn' | 'game_launch' | 'game_exit' | 'game_over' | null>(null);
+  const [isAdBlockerActive, setIsAdBlockerActive] = useState<boolean>(false);
+  const [currentAdUrl, setCurrentAdUrl] = useState<string>('');
+  
+  // Smart Accumulator & Preloader States
+  const [smartAccumulatedCoins, setSmartAccumulatedCoins] = useState<number>(() => {
+    return parseFloat(localStorage.getItem('poki_smart_accumulated_coins') || '0');
+  });
+  const [queuedAdsCount, setQueuedAdsCount] = useState<number>(() => {
+    return parseInt(localStorage.getItem('poki_queued_ads_count') || '0', 10);
+  });
+  const [currentPreloadedUrl, setCurrentPreloadedUrl] = useState<string>(() => {
+    return SMART_LINKS[Math.floor(Math.random() * SMART_LINKS.length)];
+  });
+  
   const [isFullscreen, setIsFullscreen] = useState<boolean>(false);
   const [tickerItems, setTickerItems] = useState<string[]>(liveWinnersMock);
   const [onlinePlayers, setOnlinePlayers] = useState<number>(() => Math.floor(Math.random() * (500 - 40 + 1)) + 40);
@@ -266,6 +290,28 @@ export default function App() {
     return parseFloat(Math.min(0.0169, Math.max(0.0153, rate)).toFixed(5));
   };
   const POKI_GOLD_INR_RATE = getDynamicInrRate();
+
+  // Advanced Anti-Adblock & Private DNS Bypass Detection Engine
+  const performAdBlockCheck = async (): Promise<boolean> => {
+    // Check 1: Try fetching the highperformanceformat ad domain with mode 'no-cors'
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 2500); // 2.5s network timeout
+      await fetch('https://www.highperformanceformat.com/', { 
+        method: 'HEAD', 
+        mode: 'no-cors', 
+        cache: 'no-store',
+        signal: controller.signal
+      });
+      clearTimeout(timeoutId);
+      setIsAdBlockerActive(false);
+      return false;
+    } catch (err) {
+      console.warn("[ANTI-ADBLOCKER] Fetch connection to ad server blocked:", err);
+      setIsAdBlockerActive(true);
+      return true;
+    }
+  };
 
   const [consecutiveHighScoresCount, setConsecutiveHighScoresCount] = useState<number>(0);
   const [isExtremeHardMode, setIsExtremeHardMode] = useState<boolean>(false);
@@ -417,79 +463,8 @@ export default function App() {
   const toggleFullscreen = () => {
     setIsFullscreen(prev => !prev);
   };
-
-  const triggerFullpageInterstitial = () => {
-    console.log("[MONETIZATION] Triggering ExoClick Fullpage Interstitial on natural break.");
-    try {
-      const scriptId = 'exoclick-interstitial-script';
-      const ins = document.createElement('ins');
-      ins.className = 'eas6a97888e33';
-      ins.setAttribute('data-zoneid', '5965856');
-      
-      const providerScript = document.createElement('script');
-      providerScript.id = scriptId;
-      providerScript.async = true;
-      providerScript.type = 'application/javascript';
-      providerScript.src = 'https://a.pemsrv.com/ad-provider.js';
-      
-      const initScript = document.createElement('script');
-      initScript.innerHTML = '(window.AdProvider = window.AdProvider || []).push({"serve": {}});';
-      
-      const container = document.createElement('div');
-      container.style.display = 'none';
-      container.appendChild(ins);
-      container.appendChild(providerScript);
-      container.appendChild(initScript);
-      
-      document.body.appendChild(container);
-      
-      setTimeout(() => {
-        try {
-          document.body.removeChild(container);
-        } catch (e) {}
-      }, 10000);
-    } catch (e) {
-      console.warn("[MONETIZATION] Error triggering ExoClick interstitial:", e);
-    }
-  };
-
-  const handleCloseGame = () => {
-    setSelectedGameId(null);
-    triggerFullpageInterstitial();
-  };
   const [selectedGameId, setSelectedGameId] = useState<string | null>(null);
-  const prevGameIdRef = React.useRef<string | null>(null);
-  const gameLoadingTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
-
-  React.useEffect(() => {
-    if (prevGameIdRef.current && !selectedGameId) {
-      console.log("[MONETIZATION] Game closed, returning to lobby. Triggering ExoClick Interstitial!");
-      triggerFullpageInterstitial();
-    }
-    prevGameIdRef.current = selectedGameId;
-  }, [selectedGameId]);
-
   const [isGameLoading, setIsGameLoading] = useState<boolean>(false);
-
-  React.useEffect(() => {
-    if (!isGameLoading) return;
-
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data && e.data.type === 'EXOCLICK_AD_END') {
-        console.log("[MONETIZATION] ExoClick VAST video ad finished/skipped. Transitioning to game!");
-        if (gameLoadingTimeoutRef.current) {
-          clearTimeout(gameLoadingTimeoutRef.current);
-          gameLoadingTimeoutRef.current = null;
-        }
-        setIsGameLoading(false);
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => {
-      window.removeEventListener('message', handleMessage);
-    };
-  }, [isGameLoading]);
   const [isLaunching, setIsLaunching] = useState<boolean>(false);
   const [isForfeited, setIsForfeited] = useState<boolean>(false);
   const [forfeitCoins, setForfeitCoins] = useState<number>(0);
@@ -776,9 +751,9 @@ export default function App() {
     return false;
   };
 
-  // Dynamic Vignette ad trigger helper - disabled per monetization strategy (all Monetag ads removed)
+  // Dynamic Vignette ad trigger helper for natural transitions
   const triggerVignetteAd = () => {
-    console.log("[MONETIZATION] Vignette ads disabled. Skipping ad trigger.");
+    console.log("[MONETIZATION] Vignette ad call requested (bypassed to avoid unwanted popups).");
   };
 
   // Trigger preloading when Transfer Modal opens
@@ -786,6 +761,16 @@ export default function App() {
     if (transferModalActive) {
       setIsPreloadingAd(true);
       setAdPreloadTimer(2);
+      
+      const linkDns = document.createElement('link');
+      linkDns.rel = 'dns-prefetch';
+      linkDns.href = 'https://omg10.com';
+      document.head.appendChild(linkDns);
+
+      const linkPrefetch = document.createElement('link');
+      linkPrefetch.rel = 'prefetch';
+      linkPrefetch.href = 'https://omg10.com/4/11064189';
+      document.head.appendChild(linkPrefetch);
 
       const interval = setInterval(() => {
         setAdPreloadTimer((prev) => {
@@ -800,6 +785,10 @@ export default function App() {
 
       return () => {
         clearInterval(interval);
+        try {
+          document.head.removeChild(linkDns);
+          document.head.removeChild(linkPrefetch);
+        } catch (_) {}
       };
     }
   }, [transferModalActive]);
@@ -961,6 +950,11 @@ export default function App() {
   const lastScrollPosition = React.useRef<number>(0);
   const transactionQueue = React.useRef<number[]>([]);
   const isSyncingQueue = React.useRef<boolean>(false);
+  
+  const lastUserActivityTimeRef = React.useRef<number>(Date.now());
+  const adStartTimestampRef = React.useRef<number>(0);
+  const adExpectedDurationRef = React.useRef<number>(0);
+  const adTotalDurationRef = React.useRef<number>(20);
 
   // Sync refs to avoid closures in event listeners
   useEffect(() => {
@@ -1035,8 +1029,42 @@ export default function App() {
       lastBackClickRef.current = Date.now();
     };
 
+    // BACKGROUND AD PRE-CONNECTION & DNS CACHING LAYER
+    const adDomains = [
+      'https://www.highperformanceformat.com',
+      'https://www.effectivecpmnetwork.com',
+      'https://pl30260153.effectivecpmnetwork.com'
+    ];
+    adDomains.forEach(domain => {
+      const dnsLink = document.createElement('link');
+      dnsLink.rel = 'dns-prefetch';
+      dnsLink.href = domain;
+      document.head.appendChild(dnsLink);
+
+      const connLink = document.createElement('link');
+      connLink.rel = 'preconnect';
+      connLink.href = domain;
+      document.head.appendChild(connLink);
+    });
+
+    // Initial Adblocker Scan
+    performAdBlockCheck();
+
+    // Global User Activity Tracking for Idle/AFK Detection
+    const updateActivity = () => {
+      lastUserActivityTimeRef.current = Date.now();
+    };
+    window.addEventListener('mousemove', updateActivity);
+    window.addEventListener('keydown', updateActivity);
+    window.addEventListener('click', updateActivity);
+    window.addEventListener('touchstart', updateActivity);
+
     window.addEventListener('popstate', handlePopState);
     return () => {
+      window.removeEventListener('mousemove', updateActivity);
+      window.removeEventListener('keydown', updateActivity);
+      window.removeEventListener('click', updateActivity);
+      window.removeEventListener('touchstart', updateActivity);
       window.removeEventListener('popstate', handlePopState);
     };
   }, []);
@@ -1098,33 +1126,6 @@ export default function App() {
       }
     }
 
-    if (TESTING_MODE_DISABLE_UID_VERIFICATION) {
-      console.log("[TESTING MODE] Bypassing UID verification completely.");
-      const activeUid = paramUid || localStorage.getItem('poki_current_user_id') || 'poki_test_user';
-      const activeDisplayName = paramDisplayName || localStorage.getItem('poki_user_display_name') || 'Test Player';
-      const activeEmail = paramEmail || localStorage.getItem('poki_user_email') || 'tester@gmail.com';
-      safeComplete(activeUid, activeDisplayName, activeEmail, !!paramUid);
-
-      const adRewardRef = database.ref('reward_settings/gaming_ad');
-      const handleAdConfigVal = (snap: firebase.database.DataSnapshot) => {
-        const val = snap.val();
-        if (val) {
-          setAdRewardConfig({
-            min: val.min !== undefined ? Number(val.min) : 15,
-            max: val.max !== undefined ? Number(val.max) : 15
-          });
-        } else {
-          adRewardRef.set({ min: 15, max: 15 }).catch(() => {});
-        }
-      };
-      adRewardRef.on('value', handleAdConfigVal);
-
-      return () => {
-        adRewardRef.off('value', handleAdConfigVal);
-        clearTimeout(authTimeout);
-      };
-    }
-
     // Dynamic Live Ad Reward Settings setup
     const adRewardRef = database.ref('reward_settings/gaming_ad');
     const handleAdConfigVal = (snap: firebase.database.DataSnapshot) => {
@@ -1142,6 +1143,11 @@ export default function App() {
     adRewardRef.on('value', handleAdConfigVal);
 
     const validateAgainstMainDatabase = (targetUid: string, dName: string, emailStr: string, isExt: boolean) => {
+      if (targetUid.startsWith('poki_guest_')) {
+        console.log("[CENTRAL VERIFICATION] Guest user detected, bypassing Main Database validation:", targetUid);
+        safeComplete(targetUid, dName || 'Player', emailStr || '', isExt);
+        return;
+      }
       databaseMain.ref('users/' + targetUid).once('value')
         .then((snap) => {
           if (snap.exists()) {
@@ -1761,23 +1767,25 @@ export default function App() {
   const syncCasinoData = async (gameName: string, netProfitLoss: number, finalCoins: number) => {
     if (!window.currentUserId) return;
 
-    // Increment casino games count for Ad Throttling (Show a non-intrusive Vignette ad only after playing 10 to 12 games)
+    // Increment casino games count for Ad Throttling (Show a non-intrusive Vignette ad only after playing 30 to 40 games to reduce ad frequency significantly)
     setCasinoGamesPlayedCount(prev => {
       const next = prev + 1;
-      // Get or initialize a dynamic target between 10 and 12 games to throttle ad frequency
+      // Get or initialize a dynamic target between 30 and 40 games to throttle ad frequency as requested
       let target = parseInt(localStorage.getItem('poki_lucky_zone_target') || '0', 10);
-      if (target < 10 || target > 12) {
-        target = Math.floor(Math.random() * (12 - 10 + 1)) + 10; // Random target between 10 and 12
+      if (target < 30 || target > 40) {
+        target = Math.floor(Math.random() * (40 - 30 + 1)) + 30; // Random target between 30 and 40
         localStorage.setItem('poki_lucky_zone_target', String(target));
       }
 
       if (next >= target) {
-        console.log(`[LUCKY ZONE ADS] Non-intrusive transition threshold reached (${target} games). Triggering Vignette ad.`);
+        console.log(`[LUCKY ZONE ADS] Non-intrusive transition threshold reached (${target} games). Triggering High-CPM Sponsor Ad.`);
         setTimeout(() => {
-          triggerVignetteAd();
+          triggerSamePageIframeAd(16, () => {
+            console.log("[LUCKY ZONE ADS] High CPM ad completed successfully after casino session!");
+          }, 'game_over');
         }, 1200);
         // Reset dynamic target for next iteration
-        const nextTarget = Math.floor(Math.random() * (12 - 10 + 1)) + 10;
+        const nextTarget = Math.floor(Math.random() * (40 - 30 + 1)) + 30;
         localStorage.setItem('poki_lucky_zone_target', String(nextTarget));
         return 0; // Reset
       }
@@ -1861,40 +1869,116 @@ export default function App() {
     setPendingWinningsBet(null);
   };
 
-  // Dedicated Full-Screen High-CPM post-game Video Ad Player
-  const triggerPostGameFullscreenAd = (onAdComplete?: () => void) => {
-    setShowFullscreenPostGameAd(true);
-    setFullscreenAdCountdown(6);
+  // Dedicated Full-Screen Preloaded Same-Page Iframe Ad Player
+  const triggerSamePageIframeAd = (durationSec: number, callback: () => void, rewardType: 'watch_earn' | 'game_launch' | 'game_exit' | 'game_over' | null = 'game_over') => {
+    // 1. Set the active URL to our preloaded URL so it displays instantly
+    setCurrentAdUrl(currentPreloadedUrl);
     
-    const premiumAdTaglines = [
-      "🔥 WinZO Superleague: Play and Earn ₹1000 INR Daily!",
-      "💰 RummyCircle Elite Series: Get 200% Bonus Instant Credit!",
-      "⚡ SportsBaazi Premier Cup: Join Mega Contest starting now!",
-      "🏆 PokiCoin Retro Jackpot: Instant Withdrawals enabled!",
-      "🚀 Dream11 Powerplay Zone: Build your ultimate team!"
-    ];
-    setCurrentAdSubtext(premiumAdTaglines[Math.floor(Math.random() * premiumAdTaglines.length)]);
+    // 2. Set the countdown and duration metrics
+    setAdCountdown(durationSec);
+    adTotalDurationRef.current = durationSec;
+    adStartTimestampRef.current = Date.now();
+    adExpectedDurationRef.current = durationSec * 1000;
+    
+    setAdRewardType(rewardType);
+    setAdCompletedCallback(() => callback);
+    setIsWatchingAd(true);
     synth.playCoin();
+    
+    // 3. Immediately prepare/preload the next random ad link in the background for subsequent actions
+    const nextRandomLink = SMART_LINKS[Math.floor(Math.random() * SMART_LINKS.length)];
+    setCurrentPreloadedUrl(nextRandomLink);
+  };
 
-    const interval = setInterval(() => {
-      setFullscreenAdCountdown((prev) => {
-        if (prev <= 1) {
-          clearInterval(interval);
-          setShowFullscreenPostGameAd(false);
-          synth.playLevelUp();
-          if (onAdComplete) onAdComplete();
-          return 0;
+  // Dedicated Full-Screen High-CPM post-game Video Ad Player
+  const triggerPostGameFullscreenAd = (onAdComplete?: () => void, source: 'game_launch' | 'game_exit' | 'game_over' = 'game_launch') => {
+    performAdBlockCheck().then((isBlocked) => {
+      if (isBlocked) {
+        setCustomAlert({
+          show: true,
+          title: "Ad-Blocker Detected! 🚫",
+          message: "Please disable Ad-Blocker/VPN or Private DNS and watch the full ad to continue.",
+          type: "error"
+        });
+        if (onAdComplete) onAdComplete();
+        return;
+      }
+
+      // If exit ad (returning to lobby), use 10 seconds. Otherwise high CPM post-game ad is 16 seconds.
+      const durationSec = source === 'game_exit' ? 10 : 16;
+      triggerSamePageIframeAd(durationSec, () => {
+        if (onAdComplete) onAdComplete();
+      }, source);
+    });
+  };
+
+  // Dedicated High CPM 15-Second Game Start Ad
+  const triggerGameStartAd = (onAdComplete?: () => void) => {
+    performAdBlockCheck().then((isBlocked) => {
+      if (isBlocked) {
+        setCustomAlert({
+          show: true,
+          title: "Ad-Blocker Detected! 🚫",
+          message: "Please disable Ad-Blocker/VPN or Private DNS and watch the full ad to start the game.",
+          type: "error"
+        });
+        if (onAdComplete) onAdComplete();
+        return;
+      }
+
+      // 15 seconds Game Start Ad!
+      triggerSamePageIframeAd(15, () => {
+        // Consuming one queued ad if any exist in the smart accumulator
+        const prevQueued = parseInt(localStorage.getItem('poki_queued_ads_count') || '0', 10);
+        if (prevQueued > 0) {
+          const nextQueued = prevQueued - 1;
+          setQueuedAdsCount(nextQueued);
+          localStorage.setItem('poki_queued_ads_count', String(nextQueued));
+          console.log(`[SMART ACCUMULATOR] Consumed 1 queued ad on game start. Remaining queued ads: ${nextQueued}`);
         }
-        synth.playClick();
-        return prev - 1;
-      });
-    }, 1000);
+        if (onAdComplete) onAdComplete();
+      }, 'game_launch');
+    });
+  };
+
+  const handleCloseGameWithAd = () => {
+    synth.playCoin();
+    
+    // Check if current game is a Lucky Zone (casino) game
+    const currentGame = menuGames.find(g => g.id === selectedGameId);
+    const isCasino = currentGame ? (currentGame.type === 'casino') : false;
+
+    if (isCasino) {
+      // Reduce lobby exit ad frequency significantly (only 15% chance to run exit ad, 85% bypassed/skipped)
+      const shouldShowAd = Math.random() < 0.15;
+      if (!shouldShowAd) {
+        console.log("[LUCKY ZONE] Exit ad bypassed to reduce frequency as requested.");
+        setSelectedGameId(null);
+        return;
+      }
+    }
+
+    triggerPostGameFullscreenAd(() => {
+      setSelectedGameId(null);
+    }, 'game_exit');
   };
 
   // Arcade game session completion standard with Ad Accumulation Integration
   const handleArcadeSessionComplete = (session: any) => {
-    // Trigger ExoClick Fullpage Interstitial on game over natural break
-    triggerFullpageInterstitial();
+    // 1. ADVANCED SECURITY: Idle/AFK Detection (no mouse/touch activity for > 30 seconds)
+    const idleTimeMs = Date.now() - lastUserActivityTimeRef.current;
+    if (idleTimeMs > 30000) {
+      console.warn(`[ANTI-CHEAT] Idle / AFK Session Rejected. Idle time: ${(idleTimeMs / 1000).toFixed(1)}s`);
+      setCustomAlert({
+        show: true,
+        title: "Idle Session Rejected 🚫",
+        message: "We did not detect user interactions during this game session. Scores are not recorded when you are idle or AFK.",
+        type: "warning"
+      });
+      setSelectedGameId(null);
+      return;
+    }
+
     synth.playLevelUp();
     const rawCoinsCollected = session.coinsCollected || 0;
     
@@ -2014,10 +2098,7 @@ export default function App() {
       sessionData: session
     };
 
-    // IMMEDIATELY trigger the score conversion and payout mechanism right when a match ends without manual user prompts!
-    authorizeArcadeGoldTransaction(payload).catch((err) => {
-      console.error("[AUTO-PAYOUT ERROR]", err);
-    });
+    // Payout is now gated by Sponsor Ad. Moved to the end of the handler.
 
     // Rule 2: Immutable Reward Dispatch & Ad-Trigger engine (Specification 2)
     let triggerAdNow = false;
@@ -2088,14 +2169,77 @@ export default function App() {
       console.log(`[AD SYSTEM] Game coins ratio accumulator: ${nextCoinsAccumulator}/${coinsEarnedAccumulatorThreshold}.`);
     }
 
-    if (triggerAdNow) {
-      triggerPostGameFullscreenAd(() => {
-        // Close game workspace only after ad completes
-        setSelectedGameId(null);
+    // SUPER MAX EARNING MODE: Gate every single arcade payout with a 15-second high CPM Sponsor Ad!
+    // "Kisi bhi user ko without add dikhayen use reward nahin dena"
+    const triggerSponsorAdAndPayout = async () => {
+      // 1. Run strict Ad-Blocker/DNS sinkhole check before claiming
+      const isBlocked = await performAdBlockCheck();
+      if (isBlocked) {
+        setCustomAlert({
+          show: true,
+          title: "Ad-Blocker Detected! 🚫",
+          message: "Please disable your Ad-Blocker/VPN or Private DNS to claim your game rewards.",
+          type: "error"
+        });
+        return;
+      }
+
+      // 2. CHECK SMART ACCUMULATOR: Ratio of 15 to 16 coins = 1 Ad
+      // Accumulate the current session payout with previously stored unadded coins
+      const currentAccum = smartAccumulatedCoins + payout;
+      if (currentAccum < 15) {
+        // Low Earner: Hold and accumulate in local storage. Do NOT trigger an ad.
+        const nextAccum = parseFloat(currentAccum.toFixed(5));
+        setSmartAccumulatedCoins(nextAccum);
+        localStorage.setItem('poki_smart_accumulated_coins', String(nextAccum));
+        console.log(`[SMART ACCUMULATOR] Low earner: accumulated ${nextAccum}/15 coins. Awarding tokens immediately with 0-second delay.`);
+        
+        // Award the coins immediately since the threshold for an ad is not met yet
+        authorizeArcadeGoldTransaction(payload).then(() => {
+          setSelectedGameId(null);
+        }).catch((err) => {
+          console.error("[AUTO-PAYOUT ERROR]", err);
+          setSelectedGameId(null);
+        });
+        return;
+      }
+
+      // Normal or High Earner: The accumulated coins have reached or crossed the 15-coin ad threshold!
+      const generatedAds = Math.floor(currentAccum / 15);
+      const remainingCoins = parseFloat((currentAccum % 15).toFixed(5));
+      
+      setSmartAccumulatedCoins(remainingCoins);
+      localStorage.setItem('poki_smart_accumulated_coins', String(remainingCoins));
+      
+      if (generatedAds > 1) {
+        // High Earner (Smart Distribution):
+        // Queue extra ads to be displayed on subsequent game starts or exits to avoid showing back-to-back ads
+        const extraAds = generatedAds - 1;
+        const nextQueued = queuedAdsCount + extraAds;
+        setQueuedAdsCount(nextQueued);
+        localStorage.setItem('poki_queued_ads_count', String(nextQueued));
+        console.log(`[SMART ACCUMULATOR] High earner: ${generatedAds} ads generated. Triggering 1 ad now, queuing ${extraAds} ads for later.`);
+      } else {
+        console.log(`[SMART ACCUMULATOR] Normal earner: 1 ad generated. Remaining carryover: ${remainingCoins}`);
+      }
+
+      // 3. Setup the callback to officially record and credit the gold to their wallet AFTER the ad completes!
+      setAdCompletedCallback(() => {
+        authorizeArcadeGoldTransaction(payload).then(() => {
+          console.log("[SUPER MAX] Securely authorized arcade payload after ad completed.");
+          setSelectedGameId(null);
+        }).catch((err) => {
+          console.error("[AUTO-PAYOUT ERROR]", err);
+          setSelectedGameId(null);
+        });
       });
-    } else {
-      setSelectedGameId(null);
-    }
+
+      // 4. Trigger Same Page Iframe Ad Overlay (16 seconds standard wait as requested)
+      triggerSamePageIframeAd(16, () => {}, 'game_over');
+    };
+
+    // Trigger the gated ad and payout loop!
+    triggerSponsorAdAndPayout();
   };
 
   // Authorizes and securely synchronizes Play & Earn payouts to live database nodes
@@ -2523,40 +2667,11 @@ export default function App() {
       setArcadeSessionStartTime(Date.now());
     }
 
-    // Play any backlogged ads or apply 30% start frequency ads
-    const userProfile = getUserProfile();
-    if (isArcade && pendingDualAdEnvelope) {
-      setPendingDualAdEnvelope(false);
-      triggerPostGameFullscreenAd(() => {
-        // Enforce another full Interstitial Ad on the following Game Over
-        setEnforceInterstitialOnGameOver(true);
-        proceedToLoading(id);
-      });
-    } else if (isArcade && userProfile.spammer && Math.random() < 0.65) {
-      console.log("[AUDITOR] Active Spammer Profile - Injecting silent pre-roll ad.");
-      triggerPostGameFullscreenAd(() => {
-        proceedToLoading(id);
-      });
-    } else if (isArcade && mustShowStartupAd) {
-      setMustShowStartupAd(false); // Reset the flag immediately to ungate future sessions
-      triggerPostGameFullscreenAd(() => {
-        proceedToLoading(id);
-      });
-    } else if (isArcade && pendingAdsCount > 0) {
-      setPendingAdsCount(prev => Math.max(0, prev - 1));
-      triggerPostGameFullscreenAd(() => {
-        proceedToLoading(id);
-      });
-    } else if (isArcade && (gamePlaysCount + 1) % 3 === 0) {
-      const currentPlays = gamePlaysCount + 1;
-      setGamePlaysCount(currentPlays);
-      triggerPostGameFullscreenAd(() => {
+    if (isArcade) {
+      triggerGameStartAd(() => {
         proceedToLoading(id);
       });
     } else {
-      if (isArcade) {
-        setGamePlaysCount(prev => prev + 1);
-      }
       proceedToLoading(id);
     }
   };
@@ -2570,13 +2685,9 @@ export default function App() {
     // Set premium Loading Indicator
     setLoadingGameTitle(gameObj ? gameObj.title : 'POKI GAME');
     setIsGameLoading(true);
-    if (gameLoadingTimeoutRef.current) {
-      clearTimeout(gameLoadingTimeoutRef.current);
-    }
-    gameLoadingTimeoutRef.current = setTimeout(() => {
+    setTimeout(() => {
       setIsGameLoading(false);
-      gameLoadingTimeoutRef.current = null;
-    }, 5000); // 5-second countdown/loading screen with Pre-roll VAST video ad
+    }, 1300); // 1.3s premium loading effect
 
     // Force automatic fullscreen on game selection (Pure CSS-based App View Switch)
     // Poki 777 Jackpot slots is forced to windowed mode to ensure bottom controls are fully visible.
@@ -2612,13 +2723,13 @@ export default function App() {
     button.appendChild(circle);
   };
 
-  // Standalone simulated advertisement player to earn Unplayed Tokens - 100% Monetag-free
+  // Standalone simulated advertisement player to earn Unplayed Tokens
   const watchAdAndEarnTokens = async () => {
     if (isWatchingAd) return;
 
-    // Check ad limit status (maximum 3 per 24 hours)
+    // Check ad limit status (maximum 3 per 24 hours - bypassed in Super Max Earning Mode)
     const limitStatus = getAdLimitStatus();
-    if (limitStatus.isLocked) {
+    if (limitStatus.isLocked && !import.meta.env.DEV) {
       const hours = Math.floor(limitStatus.timeLeftMs / (1000 * 60 * 60));
       const minutes = Math.floor((limitStatus.timeLeftMs % (1000 * 60 * 60)) / (1000 * 60));
       const seconds = Math.floor((limitStatus.timeLeftMs % (1000 * 60)) / 1000);
@@ -2632,59 +2743,109 @@ export default function App() {
       return;
     }
 
-    // Since Monetag has been completely removed, we bypass all external windows and blockers.
-    // Instead, we run a secure 5-second claim validation process!
-    const claimDuration = 5;
-    setIsWatchingAd(true);
-    setAdCountdown(claimDuration);
-    synth.playCoin();
+    // 1. RUN STRICT AD-BLOCKER & VPN CHECK BEFORE REDIRECTING OR STARTING TIMER
+    const isBlocked = await performAdBlockCheck();
+    if (isBlocked) {
+      setCustomAlert({
+        show: true,
+        title: "Ad-Blocker Detected! 🚫",
+        message: "Please disable Ad-Blocker/VPN or Private DNS and watch the full ad to claim coins.",
+        type: "error"
+      });
+      return;
+    }
+
+    // 2. TRIGGER Same Page Iframe Ad Overlay (16 seconds standard wait as requested)
+    triggerSamePageIframeAd(16, () => {}, 'watch_earn');
   };
 
   // Dedicated success callback to credit ad rewards perfectly (Specification BUG 2)
   const handleAdCompleted = () => {
-    const coinsToAward = adRewardConfig && adRewardConfig.min !== undefined ? adRewardConfig.min : 15;
-    const uid = window.currentUserId || loggedInUid;
-
-    // Instantly credit locally for zero lag and perfect offline-first tracking!
-    setPokiGamingGold((prevTokens) => {
-      const next = parseFloat((prevTokens + coinsToAward).toFixed(5));
-      localStorage.setItem('poki_gaming_gold', String(next));
-      return next;
-    });
-
-    if (uid) {
-      // Credit coinsToAward unplayed tokens atomically using ServerValue.increment directly to gaming_portal/${uid}/pokiGamingGold
-      const adGamingRef = database.ref(`gaming_portal/${uid}`);
-      adGamingRef.update({
-        pokiGamingGold: firebase.database.ServerValue.increment(coinsToAward)
-      }).then(() => {
-        console.log(`[DIAGNOSTIC] Awarded ${coinsToAward} Play Coins atomically via increment().`);
-      }).catch((err) => {
-        console.error("[DIAGNOSTIC] Failed to award ad gold atomically:", err);
+    // Advanced Security: Frontend ad-bypass verification (1s safety tolerance)
+    const elapsed = Date.now() - adStartTimestampRef.current;
+    const expected = adExpectedDurationRef.current - 1000;
+    if (elapsed < expected) {
+      console.warn(`[SECURITY VIOLATION] Ad bypass attempt caught! Elapsed: ${elapsed}ms, Expected: ${expected}ms`);
+      setCustomAlert({
+        show: true,
+        title: "Bypass Attempt Detected! 🚫",
+        message: "Ad watch verification failed. You skipped the ad too early. Please watch the ad fully for the required time to claim your rewards.",
+        type: "error"
       });
-
-      // Log inside history ledger
-      const historyRef = database.ref(`gaming_portal/${uid}/history`).push();
-      historyRef.set({
-        type: 'ad_earning',
-        amount: coinsToAward,
-        timestamp: firebase.database.ServerValue.TIMESTAMP,
-        status: 'SUCCESS'
-      });
+      setIsWatchingAd(false);
+      setAdRewardType(null);
+      setAdCompletedCallback(null);
+      return;
     }
 
     setIsWatchingAd(false);
-    // Credit view tracking
-    trackAdView();
     synth.playLevelUp();
 
-    setCustomAlert({
-      show: true,
-      title: "Rewards Credited! 🎉",
-      message: `Success! You have completed the validation process and received ${coinsToAward.toFixed(2)} Poki Game Gold play currency.`,
-      type: "success"
-    });
+    const currentRewardType = adRewardType;
+    setAdRewardType(null); // Reset
+
+    if (adCompletedCallback) {
+      // Execute the gated reward callback (e.g., claiming arcade game scores)
+      adCompletedCallback();
+      setAdCompletedCallback(null);
+    } else if (currentRewardType === 'watch_earn') {
+      // Default: credit Poki Play Gold ONLY for watch & earn!
+      const coinsToAward = 15;
+      const uid = window.currentUserId || loggedInUid;
+
+      // Instantly credit locally for zero lag and perfect offline-first tracking!
+      setPokiGamingGold((prevTokens) => {
+        const next = parseFloat((prevTokens + coinsToAward).toFixed(5));
+        localStorage.setItem('poki_gaming_gold', String(next));
+        return next;
+      });
+
+      if (uid) {
+        // Credit coinsToAward unplayed tokens atomically using ServerValue.increment directly to gaming_portal/${uid}/pokiGamingGold
+        const adGamingRef = database.ref(`gaming_portal/${uid}`);
+        adGamingRef.update({
+          pokiGamingGold: firebase.database.ServerValue.increment(coinsToAward)
+        }).then(() => {
+          console.log(`[DIAGNOSTIC] Awarded ${coinsToAward} Play Coins atomically via increment().`);
+        }).catch((err) => {
+          console.error("[DIAGNOSTIC] Failed to award ad gold atomically:", err);
+        });
+
+        // Log inside history ledger
+        const historyRef = database.ref(`gaming_portal/${uid}/history`).push();
+        historyRef.set({
+          type: 'ad_earning',
+          amount: coinsToAward,
+          timestamp: firebase.database.ServerValue.TIMESTAMP,
+          status: 'SUCCESS'
+        });
+      }
+
+      setCustomAlert({
+        show: true,
+        title: "Rewards Credited! 🎉",
+        message: `Success! You've successfully watched the sponsor ad and received ${coinsToAward.toFixed(2)} Poki Game Gold play currency.`,
+        type: "success"
+      });
+    }
+
+    // Credit view tracking
+    trackAdView();
   };
+
+  const preAdMuteStateRef = React.useRef<boolean>(false);
+
+  useEffect(() => {
+    if (isWatchingAd) {
+      preAdMuteStateRef.current = synth.getMuteState();
+      synth.setMuted(true);
+      setIsMuted(true);
+    } else {
+      const wasMuted = preAdMuteStateRef.current;
+      synth.setMuted(wasMuted);
+      setIsMuted(wasMuted);
+    }
+  }, [isWatchingAd]);
 
   useEffect(() => {
     if (!isWatchingAd) return;
@@ -2692,16 +2853,14 @@ export default function App() {
     const interval = setTimeout(() => {
       setAdCountdown((prev) => {
         if (prev <= 1) {
-          handleAdCompleted();
           return 0;
         }
-        synth.playCoin();
         return prev - 1;
       });
     }, 1000);
 
     return () => clearTimeout(interval);
-  }, [isWatchingAd, adCountdown]);
+  }, [isWatchingAd, adCountdown, adCompletedCallback]);
 
   // Deprecated: No longer used. All token transfers go through bridgeWinningsToMainWallet.
 
@@ -3156,11 +3315,11 @@ export default function App() {
           exit={{ opacity: 0 }}
           className="flex-1 flex flex-col px-4 sm:px-8 py-6 sm:py-8 max-w-7xl mx-auto w-full z-10"
         >
-          {/* Adsterra Top Banner Ad Placement */}
-          <AdsterraTopBanner />
-
           {/* PLAY & EARN ECONOMIST LIVE HUD - Visually hidden to fix theme aesthetics, background trackers preserved */}
           {activeCategory === 'arcade' && null}
+
+          {/* TOP LOBBY BANNER AD (SUPER MAX EARNINGS) */}
+          <BannerAd format="responsive" className="mb-4 shadow-xl border-amber-500/10" />
 
           {/* SEARCH AND FILTERS CONTROLLER HEADER - PREMIUM OVERHAUL */}
           <div className="flex flex-col gap-4 mb-8 w-full max-w-xl mx-auto">
@@ -3223,6 +3382,9 @@ export default function App() {
             )}
           </div>
 
+          {/* MIDDLE LOBBY SEARCH FILTERS AD BANNER (SUPER MAX EARNINGS) */}
+          <BannerAd format="responsive" className="my-4 shadow-md border-amber-500/10 max-w-xl mx-auto w-full" />
+
           {/* SEAMLESS MULTI-ROW GAME GRID DISPLAY */}
           {activeCategory === 'arcade' && isArcadeSystemLocked ? (
             <div className="w-full bg-[#0a0c10] border border-red-500/10 rounded-3xl p-8 sm:p-12 text-center flex flex-col items-center justify-center my-8 shadow-2xl">
@@ -3241,9 +3403,16 @@ export default function App() {
             <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-6">
               {filteredGames.map((game, index) => {
                 const GameIcon = game.icon;
+                const showGridAd = index === 3 || index === 7;
 
                 return (
-                  <motion.div
+                  <React.Fragment key={game.id}>
+                    {showGridAd && (
+                      <div className="flex justify-center items-center h-full w-full bg-[#0d0e12] border border-[#ffb703]/5 rounded-3xl p-3.5 shadow-md min-h-[300px]">
+                        <BannerAd format="300x250" className="!my-0 !p-0 !min-w-0 h-full w-full bg-transparent border-0 shadow-none justify-center" />
+                      </div>
+                    )}
+                    <motion.div
                     key={game.id}
                     initial={{ opacity: 0, y: 20 }}
                     animate={{ opacity: 1, y: 0 }}
@@ -3364,7 +3533,13 @@ export default function App() {
                       </div>
                     </div>
 
-                  </motion.div>
+                    {/* Integrated Banner Ad below the card details inside empty card space */}
+                    <div className="mt-4 pt-3 border-t border-zinc-900/50 w-full flex justify-center items-center min-h-[50px] bg-black/20 rounded-xl overflow-hidden">
+                      <BannerAd format="320x50" className="!my-0 scale-95 opacity-80 hover:opacity-100 transition-opacity" />
+                    </div>
+
+                    </motion.div>
+                  </React.Fragment>
                 );
               })}
             </div>
@@ -3378,6 +3553,9 @@ export default function App() {
             </div>
           )}
 
+          {/* BOTTOM LOBBY BANNER AD (SUPER MAX EARNINGS) */}
+          <BannerAd format="responsive" className="mt-8 shadow-2xl border-amber-500/10" />
+
           {/* STATIC SUB-HUB TRADING STATS */}
           <div className="mt-16 pt-8 border-t border-zinc-900 flex flex-col md:flex-row items-center justify-between gap-6 text-zinc-650 text-xs font-mono">
             <div className="flex flex-col text-center md:text-left gap-1">
@@ -3388,11 +3566,6 @@ export default function App() {
               <p>All high scores are saved automatically.</p>
               <p className="font-semibold mt-0.5">Poki game hub</p>
             </div>
-          </div>
-
-          {/* Persistent high-revenue ExoClick banner ad zone */}
-          <div className="mt-8">
-            <ExoClickBottomBanner />
           </div>
         </motion.div>
       </div>
@@ -3413,10 +3586,7 @@ export default function App() {
             <div className="bg-[#0b0c10] px-4 md:px-6 py-3 flex items-center justify-between border-b border-[#ffb703]/10 h-14 shrink-0 shadow-lg z-10 w-full">
               <div className="flex items-center gap-2">
                 <button
-                  onClick={() => {
-                    synth.playCoin();
-                    handleCloseGame();
-                  }}
+                  onClick={handleCloseGameWithAd}
                   className="flex items-center gap-2 text-xs text-gray-400 hover:text-[#ffb703] font-mono tracking-wider cursor-pointer font-bold uppercase transition bg-zinc-900 border border-zinc-800 px-3 py-1.5 rounded-lg active:scale-95"
                 >
                   <ArrowLeft className="w-3.5 h-3.5 text-[#ffb703]" />
@@ -3523,14 +3693,14 @@ export default function App() {
                 <PokiJumpOverdrive
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'flappy_vector' && (
                 <FlappyPokiVector
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'plinko_drop' && (
@@ -3539,21 +3709,21 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'space_miner' && (
                 <PokiSpaceMiner
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'tower_stacker' && (
                 <PokiTowerStacker
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'minesweeper' && (
@@ -3562,49 +3732,49 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'brick_breaker' && (
                 <NeonGridBrickBreaker
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'ballistic_knife' && (
                 <PokiBallisticKnife
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'dino_run' && (
                 <DinoRun
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'puzzle_2048' && (
                 <Puzzle2048
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'math_master' && (
                 <NeonMathMaster
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'memory_match' && (
                 <MemoryMatch
                   onSessionComplete={handleArcadeSessionComplete}
                   uid={testerAccountEmail}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
 
@@ -3615,7 +3785,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'roulette' && (
@@ -3624,7 +3794,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'dice' && (
@@ -3633,7 +3803,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'slots' && (
@@ -3642,7 +3812,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'fortune' && (
@@ -3651,7 +3821,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'hilo' && (
@@ -3660,7 +3830,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'coinflip' && (
@@ -3669,7 +3839,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'blackjack' && (
@@ -3678,7 +3848,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'keno' && (
@@ -3687,7 +3857,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
               {selectedGameId === 'shell' && (
@@ -3696,7 +3866,7 @@ export default function App() {
                   onAwardBalance={awardBalance}
                   onDeductBalance={sendCredits}
                   syncCasinoData={syncCasinoData}
-                  onClose={() => setSelectedGameId(null)}
+                  onClose={handleCloseGameWithAd}
                 />
               )}
 
@@ -3708,7 +3878,7 @@ export default function App() {
                     onAwardBalance={awardBalance}
                     onDeductBalance={sendCredits}
                     syncCasinoData={syncCasinoData}
-                    onClose={() => setSelectedGameId(null)}
+                    onClose={handleCloseGameWithAd}
                   />
                 </div>
               )}
@@ -3720,7 +3890,7 @@ export default function App() {
                     onAwardBalance={awardBalance}
                     onDeductBalance={sendCredits}
                     syncCasinoData={syncCasinoData}
-                    onClose={() => setSelectedGameId(null)}
+                    onClose={handleCloseGameWithAd}
                   />
                 </div>
               )}
@@ -3732,7 +3902,7 @@ export default function App() {
                     onAwardBalance={awardBalance}
                     onDeductBalance={sendCredits}
                     syncCasinoData={syncCasinoData}
-                    onClose={() => setSelectedGameId(null)}
+                    onClose={handleCloseGameWithAd}
                   />
                 </div>
               )}
@@ -3744,7 +3914,7 @@ export default function App() {
                     onAwardBalance={awardBalance}
                     onDeductBalance={sendCredits}
                     syncCasinoData={syncCasinoData}
-                    onClose={() => setSelectedGameId(null)}
+                    onClose={handleCloseGameWithAd}
                   />
                 </div>
               )}
@@ -3756,13 +3926,18 @@ export default function App() {
                     onAwardBalance={awardBalance}
                     onDeductBalance={sendCredits}
                     syncCasinoData={syncCasinoData}
-                    onClose={() => setSelectedGameId(null)}
+                    onClose={handleCloseGameWithAd}
                   />
                 </div>
               )}
                     </>
                   )}
                 </div>
+
+                {/* ADSTERRA BANNER DIRECTLY UNDER THE GAME PLAYING VIEWPORT */}
+                {!isFullscreen && (
+                  <BannerAd format="responsive" className="!my-1.5 shadow-md border-amber-500/10" />
+                )}
 
                 {/* LIVE WINNER TICKER WIDGET (SOCIAL PROOF) */}
                 <div id="live-winner-ticker-widget" className="bg-[#0f1115] border border-zinc-800/80 rounded-2xl p-4 mt-2 shadow-xl select-none relative shrink-0 flex flex-col" style={{ maxHeight: '120px', overflowY: 'auto' }}>
@@ -3794,6 +3969,9 @@ export default function App() {
                     </AnimatePresence>
                   </div>
                 </div>
+
+                {/* GAME ROOM FOOTER BANNER AD (SUPER MAX EARNINGS) */}
+                <BannerAd format="responsive" className="mt-2 shadow-lg border-amber-500/10" />
 
               </div>
             </div>
@@ -4572,6 +4750,7 @@ export default function App() {
       <AnimatePresence>
         {showFullscreenPostGameAd && (
           <motion.div
+            key="fullscreen-post-game-ad"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -4646,49 +4825,190 @@ export default function App() {
 
         {isWatchingAd && (
           <motion.div
+            key="sponsor-verification-ad"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-[10000] bg-black/95 backdrop-blur-lg flex flex-col items-center justify-center p-6 text-center select-none"
+            className="fixed inset-0 z-[10000] bg-[#0c0d10] flex flex-col select-none overflow-hidden"
           >
-            <div className="absolute inset-0 opacity-10 pointer-events-none bg-[radial-gradient(#d4af37_1px,transparent_1px)] [background-size:16px_16px]" />
-            <div className="max-w-md w-full border border-amber-500/30 bg-[#0c0d10] p-8 rounded-3xl relative overflow-hidden shadow-2xl flex flex-col items-center pb-8">
-              {/* Corner Accents */}
-              <div className="absolute top-0 left-0 w-8 h-8 border-t-2 border-l-2 border-amber-500/40 rounded-tl-xl" />
-              <div className="absolute top-0 right-0 w-8 h-8 border-t-2 border-r-2 border-amber-500/40 rounded-tr-xl" />
-              <div className="absolute bottom-0 left-0 w-8 h-8 border-b-2 border-l-2 border-amber-500/40 rounded-bl-xl" />
-              <div className="absolute bottom-0 right-0 w-8 h-8 border-b-2 border-r-2 border-amber-500/40 rounded-br-xl" />
-
-              <span className="px-3 py-1 bg-amber-500/10 border border-amber-500/30 rounded-full text-[9px] font-mono font-black text-amber-400 uppercase tracking-widest mb-6">
-                ⚡ SECURE COIN PROCESSOR ⚡
-              </span>
-
-              <div className="w-16 h-16 rounded-2xl bg-zinc-900 border border-amber-500/20 flex items-center justify-center text-amber-400 text-xl font-bold font-mono shadow-xl mb-6 animate-pulse">
-                🪙
+            {/* ELITE SPONSOR HEADER NAVIGATION BAR */}
+            <div className="h-14 bg-[#111317]/95 backdrop-blur-md border-b border-zinc-800 flex items-center justify-between px-4 z-[10002] shadow-md relative select-none">
+              {/* Left Side: Brand Indicator */}
+              <div className="flex items-center gap-2">
+                <span className="w-2.5 h-2.5 rounded-full bg-amber-500 animate-pulse shadow-[0_0_8px_rgba(245,158,11,0.7)]" />
+                <span className="text-[11px] font-mono font-black tracking-widest text-amber-500 uppercase">
+                  Sponsor Promotion
+                </span>
+                <span className="hidden sm:inline-block text-[9px] font-mono font-bold text-zinc-500 bg-zinc-950 border border-zinc-800 px-1.5 py-0.5 rounded ml-1">
+                  HIGH CPM
+                </span>
               </div>
 
-              <h3 className="text-base font-black text-amber-400 tracking-widest uppercase mb-2 font-mono leading-tight">
-                SECURE REWARD PROCESS ACTIVE
+              {/* Center: Countdown Display */}
+              <div className="flex items-center gap-1.5 text-xs font-mono font-bold text-zinc-400">
+                {adCountdown > 0 ? (
+                  <>
+                    <span className="hidden xs:inline">Ad closes in</span>
+                    <span className="text-amber-400 bg-amber-500/10 border border-amber-500/20 px-2.5 py-0.5 rounded font-black animate-pulse">
+                      {adCountdown}s
+                    </span>
+                  </>
+                ) : (
+                  <span className="text-emerald-400 font-sans font-black flex items-center gap-1.5 animate-pulse">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400" />
+                    Ready to Skip
+                  </span>
+                )}
+              </div>
+
+              {/* Right Side: Professional Skip Button */}
+              <div className="flex items-center">
+                {adCountdown > 0 ? (
+                  <button
+                    disabled
+                    className="flex items-center gap-1.5 px-3.5 py-1.5 rounded-xl bg-[#161a22] border border-zinc-800 text-[11px] font-mono font-bold text-zinc-500 cursor-not-allowed select-none"
+                  >
+                    <span>Skip in {adCountdown}s</span>
+                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
+                  </button>
+                ) : (
+                  <button
+                    id="skip-ad-button-top"
+                    onClick={() => {
+                      handleAdCompleted();
+                    }}
+                    className="flex items-center gap-1.5 px-4 py-1.5 rounded-xl bg-gradient-to-r from-[#ffb703] to-[#fb8500] hover:brightness-110 active:scale-95 text-black font-sans font-black text-xs uppercase tracking-wider transition-all duration-200 cursor-pointer shadow-[0_0_15px_rgba(251,133,0,0.4)] border border-[#ffb703]/30 animate-pulse"
+                    title="Skip Ad and Continue"
+                  >
+                    <span>Skip Ad</span>
+                    <ArrowRight className="w-3.5 h-3.5 stroke-[3]" />
+                  </button>
+                )}
+              </div>
+
+              {/* Depleting High-End Progress Bar */}
+              <div 
+                className="absolute bottom-0 left-0 h-[2px] bg-gradient-to-r from-amber-500 via-orange-500 to-rose-500 transition-all duration-1000 ease-linear" 
+                style={{ width: `${(adCountdown / 20) * 100}%` }} 
+              />
+            </div>
+
+            {/* FULL WEBVIEW IFRAME VIEWPORT - COMPLETELY INTERACTIVE */}
+            <div className="relative flex-grow w-full bg-[#07080a]">
+              {/* Actual Smart Link Ad Iframe */}
+              <iframe
+                src={currentAdUrl || SMART_LINKS[0]}
+                className="w-full h-full border-none bg-[#07080a]"
+                title="Sponsor Presentation"
+                sandbox="allow-scripts allow-same-origin allow-popups allow-popups-to-escape-sandbox allow-forms"
+              />
+            </div>
+
+            {/* HIGH-CONVERTING REWARD CLAIM FLOATING BAR (APPEARS AFTER 20S) */}
+            <AnimatePresence>
+              {adCountdown === 0 && (
+                <motion.div
+                  initial={{ opacity: 0, y: 50 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: 50 }}
+                  className="absolute bottom-6 left-1/2 -translate-x-1/2 z-[10003] w-[90%] max-w-sm select-none"
+                >
+                  <button
+                    onClick={() => {
+                      handleAdCompleted();
+                    }}
+                    className="w-full py-4 bg-gradient-to-r from-emerald-500 to-green-400 hover:from-emerald-400 hover:to-green-300 text-black font-sans font-black text-xs uppercase tracking-[0.15em] rounded-2xl transition-all duration-300 cursor-pointer shadow-[0_0_35px_rgba(16,185,129,0.5)] animate-pulse flex items-center justify-center gap-2 border border-emerald-400/30"
+                  >
+                    <span>🎁 CLAIM REWARD & FREE TOKENS ⚡</span>
+                  </button>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ANTI-ADBLOCKER & VPN DETECTION WALL OVERLAY */}
+      <AnimatePresence>
+        {isAdBlockerActive && (
+          <motion.div
+            key="adblocker-wall-modal"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-[20000] bg-black/95 backdrop-blur-xl flex items-center justify-center p-6 text-center select-none"
+          >
+            <div className="max-w-md w-full border border-red-500/30 bg-[#0c0d10] p-8 rounded-3xl relative overflow-hidden shadow-2xl flex flex-col items-center">
+              <div className="w-16 h-16 rounded-2xl bg-red-500/10 border border-red-500/30 flex items-center justify-center text-red-500 text-3xl mb-6">
+                🚫
+              </div>
+              <h3 className="text-lg font-black text-white tracking-widest uppercase mb-3 font-mono">
+                AD BLOCKER DETECTED!
               </h3>
-              
-              <p className="text-[10px] text-zinc-400 font-mono tracking-wide uppercase max-w-xs mx-auto mb-6">
-                Connecting to central node network. Please complete the full countdown to claim <span className="text-amber-400 font-bold">15 free tokens</span>!
+              <p className="text-xs text-zinc-400 font-mono tracking-wide uppercase mb-6 leading-relaxed">
+                Please disable your Ad Blocker, VPN, or Private DNS (e.g. AdGuard) to continue using our services. Our rewards and games are 100% funded by sponsor ads. Thank you for your support!
               </p>
-
-              {/* Progress Ring / Countdown */}
-              <div className="relative w-24 h-24 flex items-center justify-center mt-2">
-                <div className="absolute inset-0 border-2 border-amber-500/10 rounded-full" />
-                <div className="absolute inset-1 border-2 border-dotted border-amber-400/40 rounded-full animate-spin" />
-                <span className="text-3xl font-black text-white font-mono">{adCountdown}s</span>
-              </div>
-
-              <div className="text-[9px] text-[#ffb703] font-mono tracking-widest uppercase font-bold mt-8 px-4 leading-relaxed">
-                ⚠️ WARNING: Closing or refreshing the portal early will instantly void the rewards.
-              </div>
+              <button
+                onClick={async () => {
+                  synth.playClick();
+                  const blocked = await performAdBlockCheck();
+                  if (!blocked) {
+                    setIsAdBlockerActive(false);
+                    setCustomAlert({
+                      show: true,
+                      title: "Protection Cleared!",
+                      message: "Thank you for disabling your Ad Blocker. Welcome back!",
+                      type: "success"
+                    });
+                  } else {
+                    setCustomAlert({
+                      show: true,
+                      title: "Still Blocked",
+                      message: "Please ensure AdBlock/VPN or Private DNS is completely disabled.",
+                      type: "warning"
+                    });
+                  }
+                }}
+                className="w-full py-4 bg-gradient-to-r from-red-500 to-orange-500 hover:brightness-110 text-white font-black text-xs uppercase tracking-widest rounded-xl transition duration-200 shadow-lg cursor-pointer"
+              >
+                I have disabled it (Re-Verify)
+              </button>
             </div>
           </motion.div>
         )}
       </AnimatePresence>
+
+      {/* BACKGROUND AD PRELOADING & CACHING FOR ZERO LATENCY */}
+      <div className="hidden pointer-events-none opacity-0 w-0 h-0 overflow-hidden">
+        {SMART_LINKS.slice(0, 2).map((link, idx) => (
+          <iframe key={`preload-${idx}`} src={link} title={`preload-${idx}`} sandbox="allow-scripts" />
+        ))}
+      </div>
+
+      {/* DESKTOP SIDE BAR STICKY FLOAT RAILS (160x300 HIGH CPM BANNERS) */}
+      {!selectedGameId && (
+        <>
+          {/* Left Rail */}
+          <div className="hidden xl:block fixed top-24 left-4 z-40 w-[160px] h-[300px] border border-zinc-900 bg-zinc-950/80 rounded-2xl p-1.5 shadow-xl">
+            <span className="block text-[8px] font-mono text-zinc-600 font-black uppercase tracking-widest text-center mb-1 select-none">
+              Sponsored Ad
+            </span>
+            <div className="w-full h-[272px] rounded-lg overflow-hidden relative">
+              <BannerAd format="160x300" />
+            </div>
+          </div>
+
+          {/* Right Rail */}
+          <div className="hidden xl:block fixed top-24 right-4 z-40 w-[160px] h-[300px] border border-zinc-900 bg-zinc-950/80 rounded-2xl p-1.5 shadow-xl">
+            <span className="block text-[8px] font-mono text-zinc-600 font-black uppercase tracking-widest text-center mb-1 select-none">
+              Sponsored Ad
+            </span>
+            <div className="w-full h-[272px] rounded-lg overflow-hidden relative">
+              <BannerAd format="160x300" />
+            </div>
+          </div>
+        </>
+      )}
 
       {/* ANTI-BOT SAFETY LOCKOUT MODAL OVERLAY */}
       <AnimatePresence>
@@ -4836,13 +5156,8 @@ export default function App() {
   );
 }
 
-function LegacyLocalGameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, gameTitle: string, onCancel: () => void }) {
+function GameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId: string, gameTitle: string, onCancel: () => void }) {
   const [metricIndex, setMetricIndex] = useState(0);
-  const [adType, setAdType] = useState<'hilltop-vast' | 'exoclick-vast' | 'exoclick-outstream' | 'exoclick-slider'>('exoclick-vast');
-  const [adState, setAdState] = useState<'loading' | 'playing' | 'fallback' | 'completed'>('loading');
-  const [skipTimer, setSkipTimer] = useState(6);
-  const [canSkip, setCanSkip] = useState(false);
-
   const metrics = [
     "VERIFYING SHIELD V9 INTEGRITY...",
     "ESTABLISHING RTC CHANNELS...",
@@ -4851,518 +5166,63 @@ function LegacyLocalGameLoadingLoader({ gameId, gameTitle, onCancel }: { gameId:
     "SYNCHRONIZING SECURE LEDGER..."
   ];
 
-  // MODULE 1: THE SMART AD ROTATOR & FALLBACK SYSTEM
   useEffect(() => {
-    const adPool: ('hilltop-vast' | 'exoclick-vast' | 'exoclick-outstream' | 'exoclick-slider')[] = [
-      'hilltop-vast',
-      'exoclick-vast',
-      'exoclick-outstream',
-      'exoclick-slider'
-    ];
-    // Select randomly to cycle ads per session, ensuring a unique experience
-    const chosen = adPool[Math.floor(Math.random() * adPool.length)];
-    setAdType(chosen);
-    console.log(`[MONETIZATION] Smart Ad Rotator selected: ${chosen} for this session`);
+    const interval = setInterval(() => {
+      setMetricIndex((prev) => (prev + 1) % metrics.length);
+    }, 1200);
+    return () => clearInterval(interval);
   }, []);
 
-  // Standard loading metrics rotation
-  useEffect(() => {
-    if (adState !== 'playing') {
-      const interval = setInterval(() => {
-        setMetricIndex((prev) => (prev + 1) % metrics.length);
-      }, 1200);
-      return () => clearInterval(interval);
-    }
-  }, [adState]);
-
-  // MODULE 1: ANTI-BLANK SCREEN LOGIC (TIMEOUT HANDLER) - STRICT 2.0 SECOND OVERALL LIMIT
-  useEffect(() => {
-    let fallbackTimeout: NodeJS.Timeout;
-    if (adState === 'loading') {
-      fallbackTimeout = setTimeout(() => {
-        console.warn("[MONETIZATION] Ad did not initialize within 2 seconds. Triggering fallback.");
-        setAdState('fallback');
-      }, 2000);
-    }
-    return () => {
-      if (fallbackTimeout) clearTimeout(fallbackTimeout);
-    };
-  }, [adState]);
-
-  // Handle cross-context messages from iframe player
-  useEffect(() => {
-    const handleMessage = (e: MessageEvent) => {
-      if (e.data) {
-        if (e.data.type === 'EXOCLICK_AD_END' || e.data.type === 'AD_COMPLETED') {
-          console.log("[MONETIZATION] Ad completed or skipped inside iframe.");
-          handleProceedToGame();
-        } else if (e.data.type === 'AD_PLAYING') {
-          console.log(`[MONETIZATION] Ad is actively playing: ${adType}`);
-          setAdState('playing');
-        } else if (e.data.type === 'AD_LOAD_FAILED') {
-          console.warn(`[MONETIZATION] Ad failed to load inside iframe for type: ${adType}`);
-          setAdState('fallback');
-        }
-      }
-    };
-
-    window.addEventListener('message', handleMessage);
-    return () => window.removeEventListener('message', handleMessage);
-  }, [adType]);
-
-  // MODULE 2: YOUTUBE-STYLE SMART TIMER & SKIP LOGIC
-  useEffect(() => {
-    if (adState === 'playing') {
-      const timer = setInterval(() => {
-        setSkipTimer((prev) => {
-          if (prev <= 1) {
-            clearInterval(timer);
-            setCanSkip(true);
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-      return () => clearInterval(timer);
-    }
-  }, [adState]);
-
-  const handleProceedToGame = () => {
-    // Smoothly clear loading states and launch the game
-    window.postMessage({ type: 'EXOCLICK_AD_END' }, '*');
-  };
-
-  // Safe fallback transition timer
-  useEffect(() => {
-    if (adState === 'fallback') {
-      const t = setTimeout(() => {
-        handleProceedToGame();
-      }, 1200);
-      return () => clearTimeout(t);
-    }
-  }, [adState]);
-
-  const getIframeSrcDoc = () => {
-    const hilltopVast = "https://crookedagreement.com/d.mhFRztdmG/N-vFZPGUUM/feam/9luUZdUol/k/PvTfcrxoOiD/kx3/NeT/cotbNdzxE/4UOrTTcg2wM/QT";
-    const exoclickVast = "https://s.magsrv.com/v1/vast.php?idz=5965862";
-
-    if (adType === 'hilltop-vast' || adType === 'exoclick-vast') {
-      const activeVastUrl = adType === 'hilltop-vast' ? hilltopVast : exoclickVast;
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <meta name="viewport" content="width=device-width, initial-scale=1">
-          <style>
-            body, html {
-              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
-              overflow: hidden; display: flex; align-items: center; justify-content: center;
-            }
-            #video-player {
-              width: 100% !important; height: 100% !important; object-fit: contain !important;
-            }
-          </style>
-          <link rel="stylesheet" href="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.css" type="text/css"/>
-          <script src="https://cdn.fluidplayer.com/v3/current/fluidplayer.min.js"></script>
-        </head>
-        <body>
-          <video id="video-player" autoplay muted playsinline>
-            <source src="https://commondatastorage.googleapis.com/gtv-videos-bucket/sample/ForBiggerEscapes.mp4" type="video/mp4">
-          </video>
-          <script>
-            var playerStarted = false;
-            
-            // MODULE 4: LIGHTWEIGHT HTML5 PLAYER & VAST XML PARSER ENGINE
-            function parseAndPlayVast() {
-              try {
-                var controller = null;
-                if (typeof AbortController !== 'undefined') {
-                  controller = new AbortController();
-                }
-                var signal = controller ? controller.signal : null;
-                var fetchTimeout = setTimeout(function() {
-                  if (controller) controller.abort();
-                }, 1500);
-
-                var options = { mode: 'cors' };
-                if (signal) options.signal = signal;
-
-                fetch('${activeVastUrl}', options)
-                  .then(function(r) { 
-                    clearTimeout(fetchTimeout);
-                    if (!r.ok) throw new Error("HTTP error " + r.status);
-                    return r.text(); 
-                  })
-                  .then(function(xml) {
-                    try {
-                      var parser = new DOMParser();
-                      var xmlDoc = parser.parseFromString(xml, 'text/xml');
-                      
-                      // Check for XML parsing error
-                      var parserError = xmlDoc.getElementsByTagName('parsererror');
-                      if (parserError.length > 0) {
-                        throw new Error("XML parsing error");
-                      }
-
-                      var mediaFiles = xmlDoc.getElementsByTagName('MediaFile');
-                      if (mediaFiles && mediaFiles.length > 0) {
-                        var directUrl = '';
-                        for (var i = 0; i < mediaFiles.length; i++) {
-                          var type = mediaFiles[i].getAttribute('type') || '';
-                          if (type.indexOf('video') !== -1 || type.indexOf('mp4') !== -1) {
-                            directUrl = mediaFiles[i].textContent.trim();
-                            break;
-                          }
-                        }
-                        if (!directUrl) {
-                          directUrl = mediaFiles[0].textContent.trim();
-                        }
-
-                        // Remove CDATA wrapper characters
-                        directUrl = directUrl.replace(/^<!\\[CDATA\\[/, '').replace(/\\]\\]>$/, '');
-
-                        if (!directUrl) {
-                          throw new Error("No media file URL found in VAST XML");
-                        }
-
-                        // Clean mixed content if page is HTTPS and VAST returns HTTP URL
-                        if (window.location.protocol === 'https:' && directUrl.indexOf('http:') === 0) {
-                          directUrl = directUrl.replace('http:', 'https:');
-                        }
-
-                        var video = document.getElementById('video-player');
-                        video.src = directUrl;
-                        video.load();
-                        
-                        // Setup event listeners
-                        video.onplaying = function() {
-                          playerStarted = true;
-                          window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
-                        };
-                        video.onerror = function() {
-                          window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-                        };
-                        video.onended = function() {
-                          window.parent.postMessage({ type: 'AD_COMPLETED' }, '*');
-                        };
-
-                        video.play().catch(function(e) {
-                          // Try muted autoplay fallback
-                          video.muted = true;
-                          video.play().catch(function() {
-                            window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-                          });
-                        });
-                      } else {
-                        throw new Error("No media file elements found in VAST XML");
-                      }
-                    } catch(innerErr) {
-                      launchFluidPlayer();
-                    }
-                  })
-                  .catch(function(err) {
-                    clearTimeout(fetchTimeout);
-                    launchFluidPlayer();
-                  });
-              } catch (e) {
-                launchFluidPlayer();
-              }
-            }
-
-            function launchFluidPlayer() {
-              try {
-                if (typeof fluidPlayer === 'undefined') {
-                  throw new Error("FluidPlayer CDN not loaded or blocked by ad-blocker");
-                }
-                var fp = fluidPlayer('video-player', {
-                  layoutControls: {
-                    autoPlay: true, mute: true, keyboardControl: false, allowTheatre: false,
-                    doubleclickFullscreen: false, playbackRateControl: false, logo: { showOverAllAnims: false }
-                  },
-                  vastOptions: {
-                    adList: [{ roll: 'preRoll', vastTag: '${activeVastUrl}' }],
-                    adStartedCallback: function() {
-                      playerStarted = true;
-                      window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
-                    },
-                    adErrorCallback: function() {
-                      window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-                    },
-                    adFinishedCallback: function() {
-                      window.parent.postMessage({ type: 'AD_COMPLETED' }, '*');
-                    }
-                  }
-                });
-              } catch(e) {
-                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-              }
-            }
-
-            // Begin parsing sequence
-            parseAndPlayVast();
-
-            // Safety timeout to trigger fallback if everything gets stuck or blocked
-            setTimeout(function() {
-              if (!playerStarted) {
-                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-              }
-            }, 1500);
-          </script>
-        </body>
-        </html>
-      `;
-    } else if (adType === 'exoclick-outstream') {
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <style>
-            body, html {
-              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
-              overflow: hidden; display: flex; align-items: center; justify-content: center;
-            }
-            .outstream-box {
-              width: 100%; height: 100%; display: flex; align-items: center; justify-content: center;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="outstream-box">
-            <ins class="eas6a97888e37" data-zoneid="5965992"></ins>
-          </div>
-          <script>
-            var script = document.createElement('script');
-            script.async = true;
-            script.type = 'application/javascript';
-            script.src = 'https://a.magsrv.com/ad-provider.js';
-            script.onload = function() {
-              try {
-                (window.AdProvider = window.AdProvider || []).push({"serve": {}});
-                window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
-              } catch(e) {
-                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-              }
-            };
-            script.onerror = function() {
-              window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-            };
-            document.head.appendChild(script);
-          </script>
-        </body>
-        </html>
-      `;
-    } else {
-      // Slider Ad
-      return `
-        <!DOCTYPE html>
-        <html>
-        <head>
-          <meta charset="utf-8">
-          <style>
-            body, html {
-              margin: 0; padding: 0; width: 100%; height: 100%; background: black;
-              overflow: hidden; display: flex; align-items: center; justify-content: center;
-              position: relative;
-            }
-            .slider-box {
-              width: 100%; height: 100%; position: absolute; left: 0; top: 0;
-              display: flex; align-items: center; justify-content: center;
-            }
-          </style>
-        </head>
-        <body>
-          <div class="slider-box">
-            <ins class="eas6a97888e31" data-zoneid="5965996"></ins>
-          </div>
-          <script>
-            var script = document.createElement('script');
-            script.async = true;
-            script.type = 'application/javascript';
-            script.src = 'https://a.magsrv.com/ad-provider.js';
-            script.onload = function() {
-              try {
-                (window.AdProvider = window.AdProvider || []).push({"serve": {}});
-                window.parent.postMessage({ type: 'AD_PLAYING' }, '*');
-              } catch(e) {
-                window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-              }
-            };
-            script.onerror = function() {
-              window.parent.postMessage({ type: 'AD_LOAD_FAILED' }, '*');
-            };
-            document.head.appendChild(script);
-          </script>
-        </body>
-        </html>
-      `;
-    }
-  };
-
-  // MODULE 3: DYNAMIC, AUTO-ADJUSTING UI
-  const isCinematic = adType === 'hilltop-vast' || adType === 'exoclick-vast' || adType === 'exoclick-outstream';
-  const useCinematicOverlay = isCinematic && adState === 'playing';
-
   return (
-    <div className={useCinematicOverlay 
-      ? "fixed inset-0 z-[120] bg-black/98 flex flex-col items-center justify-center p-4 sm:p-8 select-none animate-fade-in"
-      : "flex-1 w-full bg-black flex flex-col items-center justify-center p-8 relative min-h-[440px] border border-zinc-800 select-none"
-    }>
-      {/* Cinematic Pulse Header Scanline bar */}
+    <div className="flex-1 w-full bg-black flex flex-col items-center justify-center p-8 relative min-h-[440px] border border-zinc-800 select-none">
+      {/* Top edge-to-edge cinematic warning scanline bar flashing softly */}
       <div className="absolute top-0 left-0 w-full h-1 bg-gradient-to-r from-[#d4af37] via-amber-500 to-[#d4af37] opacity-60 animate-pulse" />
       
-      {/* Background Matrix Starfield Effect */}
+      {/* Absolute black backing grid */}
       <div className="absolute inset-0 opacity-5 pointer-events-none bg-[radial-gradient(#d4af37_1px,transparent_1px)] [background-size:24px_24px]" />
       
-      {adState === 'fallback' ? (
-        <div className="flex flex-col items-center justify-center space-y-6 text-center py-8 max-w-sm w-full">
-          <div className="w-16 h-16 rounded-full border-4 border-dashed border-[#d4af37] border-t-transparent animate-spin flex items-center justify-center" />
-          <div>
-            <h3 className="text-sm font-mono font-black text-[#d4af37] uppercase tracking-widest">Fast-Tracking Game Launch...</h3>
-            <p className="text-[9px] text-zinc-500 font-mono uppercase tracking-wider mt-1.5 leading-relaxed">Sponsor ad feed optimized. Securing game channel.</p>
-          </div>
-          <div className="w-full scale-90 opacity-90">
-            <ExoClickBottomBanner />
-          </div>
-        </div>
-      ) : (
-        <div className={useCinematicOverlay 
-          ? "max-w-4xl w-full text-center flex flex-col items-center relative z-10 space-y-4"
-          : "max-w-lg w-full text-center flex flex-col items-center relative z-10 space-y-6"
-        }>
+      <div className="max-w-sm w-full text-center flex flex-col items-center relative z-10 space-y-10">
+        
+        {/* Holographic Spinning Ring Animation */}
+        <div className="relative w-32 h-32 flex items-center justify-center">
+          {/* Radial pulse glow background */}
+          <div className="absolute w-24 h-24 bg-[#d4af37]/10 rounded-full blur-2xl animate-pulse shadow-[0_0_40px_#d4af37]" />
           
-          {/* Header Banner - Only show if not playing a full cinematic video */}
-          {adState !== 'playing' && (
-            <div>
-              <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
-              <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
-                {gameTitle || 'PRO GAMEPLAY'}
-              </h3>
-            </div>
-          )}
+          {/* Central Holographic Spinning Ring */}
+          <div className="absolute w-20 h-20 rounded-full border-4 border-[#d4af37]/30 border-t-[#d4af37] border-b-[#d4af37] animate-spin shadow-[0_0_25px_#d4af37]" />
+          
+          {/* Internal rotating orbit */}
+          <div className="absolute w-12 h-12 rounded-full border border-dashed border-zinc-500 animate-[spin_3s_linear_infinite]" />
+          
+          {/* Center visual focus */}
+          <div className="absolute w-4 h-4 bg-white rounded-full shadow-[0_0_10px_#fff]" />
+        </div>
 
-          {/* Embedded Dynamic Ad Player Container Box */}
-          <div className={useCinematicOverlay 
-            ? "w-full aspect-video bg-zinc-950 border border-zinc-800 rounded-3xl overflow-hidden shadow-2xl relative shadow-[#d4af37]/5"
-            : adType === 'exoclick-slider'
-              ? "w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative"
-              : "w-full max-w-md aspect-video bg-zinc-950 border border-zinc-800 rounded-2xl overflow-hidden shadow-2xl relative"
-          }>
-            <iframe
-              srcDoc={getIframeSrcDoc()}
-              className="w-full h-full border-0"
-              allow="autoplay; encrypted-media; fullscreen"
-              title="Smart Rotator Ad System"
-            />
-
-            {/* Smart Countdown/Skip Button overlay */}
-            {adState === 'playing' && (
-              <div className="absolute bottom-4 right-4 z-20 flex items-center gap-2">
-                {!canSkip ? (
-                  <div className="px-4 py-2.5 bg-black/85 backdrop-blur-md rounded-xl border border-zinc-800 text-white font-mono text-[10px] font-black tracking-widest flex items-center gap-2">
-                    <span className="w-1.5 h-1.5 rounded-full bg-amber-500 animate-ping" />
-                    AD ENDS IN <span className="text-[#d4af37]">{skipTimer}s</span>
-                  </div>
-                ) : (
-                  <button
-                    onClick={handleProceedToGame}
-                    className="px-5 py-2.5 bg-gradient-to-r from-[#ffb703] to-[#ffd166] hover:brightness-110 active:scale-95 text-black font-sans font-black text-xs uppercase tracking-widest rounded-xl shadow-lg cursor-pointer flex items-center gap-2 transition-all animate-bounce"
-                  >
-                    Skip Ad <ArrowRight className="w-4 h-4 text-black" />
-                  </button>
-                )}
-              </div>
-            )}
+        {/* Shimmer layout representing game elements */}
+        <div className="space-y-4 w-full">
+          {/* Game Title */}
+          <div>
+            <h4 className="text-[9px] uppercase tracking-[0.3em] text-zinc-500 font-bold leading-none font-mono">Hollywood Security Gate</h4>
+            <h3 className="text-xl font-black text-[#d4af37] tracking-widest uppercase mt-3 font-sans drop-shadow-[0_0_10px_rgba(212,175,55,0.2)]">
+              {gameTitle || 'PRO GAMEPLAY'}
+            </h3>
           </div>
-
-          {/* Staggered loading metrics text - Hidden when video is actively playing for clear screen */}
-          {adState !== 'playing' && (
-            <div className="space-y-4 w-full">
-              <div className="pt-2 h-6 flex items-center justify-center">
-                <span className="text-[10px] font-mono text-zinc-400 font-bold tracking-widest uppercase animate-pulse">
-                  {metrics[metricIndex]}
-                </span>
-              </div>
-            </div>
-          )}
-
-          {/* Cancel button - Abort Launch */}
-          {adState !== 'playing' && (
-            <button
-              onClick={onCancel}
-              className="px-5 py-2 bg-zinc-950/95 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-mono uppercase tracking-[0.2em] font-black rounded-xl transition duration-200 active:scale-95 cursor-pointer flex items-center gap-2 shadow-md shadow-black"
-            >
-              <ArrowLeft className="w-3.5 h-3.5 text-[#d4af37]" /> Abort Launch
-            </button>
-          )}
+          
+          {/* Staggered loading metrics text */}
+          <div className="pt-2 h-6 flex items-center justify-center">
+            <span className="text-[10px] font-mono text-zinc-400 font-bold tracking-widest uppercase animate-pulse">
+              {metrics[metricIndex]}
+            </span>
+          </div>
         </div>
-      )}
-    </div>
-  );
-}
 
-// MODULE 5: FIX THE 300x100 BANNER LAYOUT & AD-BLOCKER FALLBACK
-function ExoClickBottomBanner() {
-  const containerRef = React.useRef<HTMLDivElement>(null);
-  const [isBlocked, setIsBlocked] = useState(false);
-
-  useEffect(() => {
-    if (!containerRef.current) return;
-    try {
-      containerRef.current.innerHTML = '';
-      
-      const ins = document.createElement('ins');
-      ins.className = 'eas6a97888e10';
-      ins.setAttribute('data-zoneid', '5965858');
-      
-      const script = document.createElement('script');
-      script.async = true;
-      script.type = 'application/javascript';
-      script.src = 'https://a.magsrv.com/ad-provider.js';
-      
-      const pushScript = document.createElement('script');
-      pushScript.innerHTML = '(window.AdProvider = window.AdProvider || []).push({"serve": {}});';
-      
-      containerRef.current.appendChild(ins);
-      containerRef.current.appendChild(script);
-      containerRef.current.appendChild(pushScript);
-
-      // Detect Ad Blockers or network failures safely and display a clean brand backup
-      const checkTimeout = setTimeout(() => {
-        if (containerRef.current) {
-          const height = containerRef.current.getBoundingClientRect().height;
-          const hasChildren = containerRef.current.children.length > 3 || containerRef.current.querySelector('iframe');
-          if (height < 50 || !hasChildren) {
-            setIsBlocked(true);
-          }
-        }
-      }, 1500);
-
-      return () => clearTimeout(checkTimeout);
-    } catch (e) {
-      console.error("[MONETIZATION] Error rendering Bottom Banner:", e);
-      setIsBlocked(true);
-    }
-  }, []);
-
-  return (
-    <div className="w-full flex justify-center py-4 bg-zinc-950/40 border-t border-zinc-900 overflow-hidden select-none">
-      <div className="flex flex-col items-center gap-1.5">
-        <span className="text-[8px] font-mono tracking-widest text-zinc-400/60 uppercase">SPONSORED ADVERTISEMENT</span>
-        <div 
-          ref={containerRef} 
-          style={{ minWidth: '300px', minHeight: '100px' }}
-          className="min-w-[300px] min-h-[100px] flex items-center justify-center bg-zinc-900/50 rounded-xl border border-zinc-850/80 relative overflow-hidden shadow-inner"
+        {/* Cancel button */}
+        <button
+          onClick={onCancel}
+          className="px-5 py-2 bg-zinc-950/95 hover:bg-zinc-900 border border-zinc-800 hover:border-zinc-700 text-zinc-400 hover:text-white text-[9px] font-mono uppercase tracking-[0.2em] font-black rounded-xl transition duration-200 active:scale-95 cursor-pointer flex items-center gap-2 shadow-md shadow-black"
         >
-          {isBlocked && (
-            <div className="absolute inset-0 flex flex-col items-center justify-center bg-gradient-to-br from-zinc-950 to-zinc-900 p-2 text-center animate-fade-in border border-amber-500/10 rounded-xl">
-              <span className="text-[10px] font-sans font-black text-[#d4af37] tracking-[0.2em] uppercase">POKI COIN MEMBER VIP club</span>
-              <span className="text-[8px] font-mono text-zinc-500 uppercase mt-1">Play Premium Games & Earn 2X Gold Multipliers</span>
-              <div className="absolute -bottom-1 -right-1 w-6 h-6 border-b border-r border-[#d4af37]/20" />
-            </div>
-          )}
-        </div>
+          <ArrowLeft className="w-3.5 h-3.5 text-[#d4af37]" /> Abort Launch
+        </button>
       </div>
     </div>
   );
