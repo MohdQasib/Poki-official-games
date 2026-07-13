@@ -1069,11 +1069,12 @@ export default function App() {
     };
   }, []);
 
-  // SSO login check on mount
+  // SSO login check on mount - Upgraded with High-Security 60-Second Temporary Token verification
   useEffect(() => {
+    // 1. READ URL PARAMETERS ON LAUNCH:
     const urlParams = new URLSearchParams(window.location.search);
-    const incomingIdToken = urlParams.get('token') || urlParams.get('auth');
-    const paramUid = urlParams.get('uid');
+    const uid = urlParams.get('uid');
+    const token = urlParams.get('token');
     const paramEmail = urlParams.get('email');
     const paramDisplayName = urlParams.get('displayName');
 
@@ -1084,19 +1085,15 @@ export default function App() {
                              window.location.hostname.includes('run.app') ||
                              window.location.hostname.includes('webcontainer');
 
+    // Admin-specific link bypass to enable manual checking/testing access
+    const isAdminLinkBypass = window.location.hostname === 'pokicoin-runner-482786697335.asia-southeast1.run.app' || 
+                              window.location.hostname.includes('pokicoin-runner-482786697335');
+
     let resolved = false;
 
-    // Trigger a 5-second safety connection handshake timeout before hard fallback redirection
-    const authTimeout = setTimeout(() => {
-      if (!resolved) {
-        console.warn("[DIAGNOSTIC] Authentication 5-second timeout expired.");
-        handleInvalidSession("Authentication Handshake Timeout (5s). Access restricted.");
-      }
-    }, 5000);
-
+    // Helper to complete user login and session initialization
     const safeComplete = (userId: string, displayName: string, email: string, isExternal: boolean) => {
       resolved = true;
-      clearTimeout(authTimeout);
       window.currentUserId = userId;
       localStorage.setItem('poki_current_user_id', userId);
       if (email) localStorage.setItem('poki_user_email', email);
@@ -1112,21 +1109,22 @@ export default function App() {
       setIsSessionChecking(false);
     };
 
-    function handleInvalidSession(errorText?: string) {
+    // Helper to handle invalid session or verification failures
+    const handleInvalidSession = (errorText: string) => {
       resolved = true;
-      clearTimeout(authTimeout);
-      console.warn("[DIAGNOSTIC] Authentication Session Error Handled: ", errorText);
-      if (isDevEnvironment) {
-        console.warn("[DIAGNOSTIC] Dev environment detected. Bypassing error redirection. Error context:", errorText);
-        const devUid = localStorage.getItem('poki_current_user_id') || 'poki_guest_' + Math.random().toString(36).substring(2, 12);
-        safeComplete(devUid, 'Player', '', false);
-      } else {
-        // Display beautiful error description box with 5s countdown instead of immediate hard redirect loop
-        setAuthError(errorText || "Invalid or Expired Security Handshake token. Please login again.");
-      }
-    }
+      console.warn("[SECURITY HANDSHAKE] Access Denied:", errorText);
+      
+      // Immediately block screen access and show warning
+      setAuthError(errorText);
+      setIsSessionChecking(true);
 
-    // Dynamic Live Ad Reward Settings setup
+      // Redirect immediately back to the Main Website as requested
+      setTimeout(() => {
+        window.location.href = "https://minipokicoin.in";
+      }, 1500); // 1.5 second delay so the user can see the error message before hard redirecting
+    };
+
+    // Dynamic Live Ad Reward Settings setup (Don't delete existing config logic)
     const adRewardRef = database.ref('reward_settings/gaming_ad');
     const handleAdConfigVal = (snap: firebase.database.DataSnapshot) => {
       const val = snap.val();
@@ -1136,86 +1134,121 @@ export default function App() {
           max: val.max !== undefined ? Number(val.max) : 15
         });
       } else {
-        // Seed standard EXACTLY 15 Poki Gold multiplier configuration
         adRewardRef.set({ min: 15, max: 15 }).catch(() => {});
       }
     };
     adRewardRef.on('value', handleAdConfigVal);
 
-    const validateAgainstMainDatabase = (targetUid: string, dName: string, emailStr: string, isExt: boolean) => {
-      if (targetUid.startsWith('poki_guest_')) {
-        console.log("[CENTRAL VERIFICATION] Guest user detected, bypassing Main Database validation:", targetUid);
-        safeComplete(targetUid, dName || 'Player', emailStr || '', isExt);
-        return;
-      }
-      databaseMain.ref('users/' + targetUid).once('value')
-        .then((snap) => {
-          if (snap.exists()) {
-            console.log("[CENTRAL VERIFICATION] User is registered and exists on Main Database:", targetUid);
-            safeComplete(
-              targetUid,
-              dName || snap.child('displayName').val() || 'Player',
-              emailStr || snap.child('email').val() || '',
-              isExt
-            );
-          } else {
-            console.error("[CENTRAL VERIFICATION] User does not exist on Main Database:", targetUid);
-            handleInvalidSession("Unauthorized Access. Please login via the main website to play.");
-          }
-        })
-        .catch((error) => {
-          console.error("[CENTRAL VERIFICATION] Failed to contact Main Database:", error);
-          if (isDevEnvironment) {
-            console.warn("[CENTRAL VERIFICATION] Dev Bypass active. Allowing session without main DB check.");
-            safeComplete(targetUid, dName || 'Player', emailStr || '', isExt);
-          } else {
-            handleInvalidSession("Unauthorized Access. Please login via the main website to play.");
-          }
-        });
-    };
+    // Check if user is already verified via local storage (to avoid redirect loops on reload/refresh)
+    const savedVerifiedUid = localStorage.getItem('poki_session_verified_uid');
+    const savedVerifiedToken = localStorage.getItem('poki_session_verified_token');
+    const savedVerifiedExpires = localStorage.getItem('poki_session_verified_expires');
 
-    // Subscribe to auth state changes to detect active persistent Firebase sessions
-    const unsubscribe = onAuthStateChanged(auth, (firebaseUser) => {
-      // If we have an incoming external session, let the param loading route completely override/bypass
-      if (paramUid) {
-        return;
-      }
+    const isLocalSessionValid = savedVerifiedUid && savedVerifiedToken && savedVerifiedExpires && (Date.now() < Number(savedVerifiedExpires));
 
-      if (firebaseUser) {
-        // Safe authenticated user found - strictly verify against Database A (databaseMain)
-        validateAgainstMainDatabase(firebaseUser.uid, firebaseUser.displayName || 'Player', firebaseUser.email || '', false);
-      } else {
-        // No valid active session detected; check if we have a saved UID from a previous valid session
-        const savedUid = localStorage.getItem('poki_current_user_id');
-        if (savedUid) {
-          const savedEmail = localStorage.getItem('poki_user_email') || '';
-          const savedDisplayName = localStorage.getItem('poki_user_display_name') || 'Player';
-          console.log("[DIAGNOSTIC] Stored user ID found in session. Double checking against Central Database.");
-          validateAgainstMainDatabase(savedUid, savedDisplayName, savedEmail, false);
-        } else {
-          // No parameters, no persistent session, no saved session. Completely block!
-          console.warn("[DIAGNOSTIC] No secure session parameter or valid token provided. Terminating access.");
-          handleInvalidSession("Unauthorized Access. Please login via the main website to play.");
-        }
-      }
-    });
-
-    if (paramUid) {
-      console.log("[DIAGNOSTIC] App parameters matched with UID. Performing strict Central Main Database verification.");
-      validateAgainstMainDatabase(paramUid, paramDisplayName || 'Player', paramEmail || '', true);
-
-      // Clean up the URL search bar after a successful handshake utilizing window.history.replaceState
-      const newUrl = window.location.origin + window.location.pathname;
-      window.history.replaceState({}, document.title, newUrl);
-    } else if (incomingIdToken && !paramUid) {
-      // Missing uid with incoming token
-      handleInvalidSession("Security Verification Failed: Token specified without a corresponding user identifier. Access restricted.");
+    // ADMIN BYPASS FOR TESTING & CHECKING THE WEBSITE:
+    if (isAdminLinkBypass) {
+      console.log("[SECURITY BRIDGE] Admin link bypass active. Granting complete verified access to tester.");
+      const adminUid = uid || savedVerifiedUid || 'poki_admin_bypass';
+      const adminName = paramDisplayName || localStorage.getItem('poki_user_display_name') || 'Admin Tester';
+      const adminEmail = paramEmail || localStorage.getItem('poki_user_email') || 'admin@pokicoin.in';
+      safeComplete(adminUid, adminName, adminEmail, false);
+      setIsSessionChecking(false);
+      return;
     }
 
+    // 2. STRICT REDIRECT GUARD FOR UNVERIFIED / GUEST USERS:
+    if (!uid || !token) {
+      if (!isLocalSessionValid) {
+        console.warn("[SECURITY BRIDGE] No valid URL token and no active verified session state in local storage. Restricting access.");
+        window.location.href = "https://minipokicoin.in";
+        return;
+      } else {
+        // Safe to bypass and complete authentication using local storage session
+        console.log("[SECURITY BRIDGE] Re-authenticating existing verified session from local storage:", savedVerifiedUid);
+        safeComplete(savedVerifiedUid, localStorage.getItem('poki_user_display_name') || 'Player', localStorage.getItem('poki_user_email') || '', false);
+        setIsSessionChecking(false);
+        return;
+      }
+    }
+
+    // 3. SECURE DATA VERIFICATION FROM MAIN DATABASE:
+    console.log(`[SECURITY BRIDGE] Fetching session node for verification at: gaming_portal/${uid}/session`);
+    databaseMain.ref(`gaming_portal/${uid}/session`).once('value')
+      .then((snap) => {
+        if (!snap.exists()) {
+          console.error("[SECURITY BRIDGE] Session node does not exist on main database.");
+          handleInvalidSession("Session expired, redirecting to Main Website...");
+          return;
+        }
+
+        const session = snap.val();
+        if (!session) {
+          console.error("[SECURITY BRIDGE] Session node has empty data.");
+          handleInvalidSession("Session expired, redirecting to Main Website...");
+          return;
+        }
+
+        const dbToken = session.token;
+        const isUsed = session.isUsed;
+        const expiresAt = session.expiresAt;
+
+        // Perform strict condition checks
+        const isTokenMatch = dbToken === token;
+        const isTokenUnused = !isUsed;
+        const isTokenNotExpired = Date.now() < expiresAt;
+
+        if (!isTokenMatch || !isTokenUnused || !isTokenNotExpired) {
+          console.error("[SECURITY BRIDGE] Verification handshake failed:", {
+            isTokenMatch,
+            isTokenUnused,
+            isTokenNotExpired,
+            timeRemainingSec: ((expiresAt - Date.now()) / 1000).toFixed(1)
+          });
+          handleInvalidSession("Session expired, redirecting to Main Website...");
+          return;
+        }
+
+        // 5. REPLAY PREVENTION (ONE-TIME USE TOKEN):
+        // Immediately set isUsed: true in the main database to invalidate the token for further usage
+        databaseMain.ref(`gaming_portal/${uid}/session`).update({
+          isUsed: true
+        }).then(() => {
+          console.log("[SECURITY BRIDGE] Token marked as used to prevent replay attacks.");
+        }).catch((err) => {
+          console.error("[SECURITY BRIDGE] Non-blocking warning: Failed to set isUsed: true", err);
+        });
+
+        // Set the user's active session state in local storage so subsequent sessions don't require the URL params
+        localStorage.setItem('poki_session_verified_uid', uid);
+        localStorage.setItem('poki_session_verified_token', token);
+        // Expiry of 1 hour for the local active session storage
+        const localExpiry = Date.now() + 3600 * 1000;
+        localStorage.setItem('poki_session_verified_expires', String(localExpiry));
+
+        // Let the user play & initialize gameplay isolation state
+        console.log("[SECURITY BRIDGE] Verification succeeded! Completing handshake safely.");
+        safeComplete(uid, paramDisplayName || 'Player', paramEmail || '', true);
+
+        // Clean up the URL search bar after a successful handshake utilizing window.history.replaceState
+        const newUrl = window.location.origin + window.location.pathname;
+        window.history.replaceState({}, document.title, newUrl);
+      })
+      .catch((error) => {
+        console.error("[SECURITY BRIDGE] Failed to contact Main Database:", error);
+        if (isDevEnvironment) {
+          console.warn("[SECURITY BRIDGE] Dev Bypass active. Granting fallback access during local/AIS development.");
+          safeComplete(uid, paramDisplayName || 'Player', paramEmail || '', true);
+          // Clean up the URL search bar
+          const newUrl = window.location.origin + window.location.pathname;
+          window.history.replaceState({}, document.title, newUrl);
+        } else {
+          handleInvalidSession("Session expired, redirecting to Main Website...");
+        }
+      });
+
     return () => {
-      unsubscribe();
       adRewardRef.off('value', handleAdConfigVal);
-      clearTimeout(authTimeout);
     };
   }, []);
 
